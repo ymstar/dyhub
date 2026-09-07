@@ -209,6 +209,38 @@ export function decodeMessageBody(msg: RawProtoMessage): DecodedMessage | null {
   }
 }
 
+/**
+ * 从帧中提取 ack 信息（轻量内核需主动回复 ack 保持推送链路）
+ * 返回 logId / needAck / internalExt，供构造 PushFrame(payload_type=ack)
+ */
+export function decodeAckInfo(buf: Uint8Array): { logId: string; needAck: boolean; internalExt: string } {
+  const PushFrame = lookup('PushFrame');
+  const frame = PushFrame.decode(buf) as any;
+  const headers: Record<string, string> = {};
+  for (const h of frame.headersList ?? []) {
+    if (h.key) headers[h.key] = String(h.value ?? '');
+  }
+  let payload: Uint8Array = frame.payload ?? new Uint8Array(0);
+  if (headers['compress_type'] === 'gzip') {
+    try {
+      payload = new Uint8Array(ungzip(payload));
+    } catch {
+      return { logId: String(frame.logId ?? ''), needAck: false, internalExt: '' };
+    }
+  }
+  try {
+    const Response = lookup('Response');
+    const resp = Response.decode(payload) as any;
+    return {
+      logId: String(frame.logId ?? ''),
+      needAck: !!resp.needAck,
+      internalExt: String(resp.internalExt ?? ''),
+    };
+  } catch {
+    return { logId: String(frame.logId ?? ''), needAck: false, internalExt: '' };
+  }
+}
+
 /** 工具：Long → 十进制字符串（避免精度丢失） */
 export function longToStr(v: any): string {
   if (v == null) return '';

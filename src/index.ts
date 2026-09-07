@@ -28,26 +28,48 @@ async function main() {
   const dedupe = new EventDeduplicator(200_000);
 
   // 2. 采集内核
-  // DYHUB_HEADED：仅当显式等于 "1" / "true"（不区分大小写）时开启有头模式，其余一律无头。
-  // 注意不能用 !process.env.DYHUB_HEADED：环境变量字符串 "0" / "false" 也是 truthy，会误开有头导致无 XServer 崩溃。
-  const headed = ['1', 'true'].includes((process.env.DYHUB_HEADED ?? '').trim().toLowerCase());
-  const browser = new BrowserManager({
-    executablePath: process.env.DYHUB_CHROME || undefined,
-    headless: !headed,
-  });
-  await browser.init();
-  console.log(`[dyhub] 采集浏览器就绪（headless=${!headed}）`);
+  // DYHUB_COLLECTOR=lightweight（默认）：纯代码 wss 直连，连接快、零浏览器进程
+  // DYHUB_COLLECTOR=browser：真实浏览器 + CDP 帧截获，最稳但费资源（需系统 Chrome/Chromium）
+  const kernel = (process.env.DYHUB_COLLECTOR ?? 'lightweight').toLowerCase();
 
-  const collector = new Collector({
-    browser,
-    onMessage: (msg, meta) => {
-      const ev = normalize(msg, meta);
-      if (!ev) return;
-      // 去重：未知类型消息量大且易重复，统一过窗口
-      if (dedupe.isDuplicate(ev.id)) return;
-      bus.publish(ev);
-    },
-  });
+  let collector: Collector;
+  let browser: BrowserManager | null = null;
+  if (kernel === 'lightweight') {
+    const { LightweightSession } = await import('./collector/lightweightSession.js');
+    collector = new Collector({
+      createSession: (roomId) =>
+        new LightweightSession(roomId, {
+          onMessage: (msg, meta) => {
+            const ev = normalize(msg, meta);
+            if (!ev) return;
+            if (dedupe.isDuplicate(ev.id)) return;
+            bus.publish(ev);
+          },
+          onError: (err) => console.error(`[dyhub] 房间 ${roomId} 采集错误:`, err.message),
+        }),
+      onMessage: () => {},
+    });
+    console.log('[dyhub] 采集内核: lightweight（纯代码直连，连接快 / 低资源）');
+  } else {
+    // DYHUB_HEADED：仅当显式等于 "1" / "true"（不区分大小写）时开启有头模式，其余一律无头。
+    // 注意不能用 !process.env.DYHUB_HEADED：环境变量字符串 "0" / "false" 也是 truthy，会误开有头导致无 XServer 崩溃。
+    const headed = ['1', 'true'].includes((process.env.DYHUB_HEADED ?? '').trim().toLowerCase());
+    browser = new BrowserManager({
+      executablePath: process.env.DYHUB_CHROME || undefined,
+      headless: !headed,
+    });
+    await browser.init();
+    console.log(`[dyhub] 采集内核: browser（headless=${!headed}）`);
+    collector = new Collector({
+      browser,
+      onMessage: (msg, meta) => {
+        const ev = normalize(msg, meta);
+        if (!ev) return;
+        if (dedupe.isDuplicate(ev.id)) return;
+        bus.publish(ev);
+      },
+    });
+  }
 
   // 3. 分发层
   const webhooks = new WebhookDispatcher(bus);
@@ -75,7 +97,7 @@ async function main() {
     await collector.disconnectAll();
     wsDispatcher?.close();
     webhooks.close();
-    await browser.close();
+    await browser?.close();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

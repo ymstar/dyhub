@@ -54,7 +54,7 @@ flowchart TB
 
 
 
-* **零逆向采集内核**：真实浏览器（系统 Chrome headless）自行完成签名、设备指纹、Cookie；采集侧只通过 CDP 旁观 WebSocket 帧，**抖音改协议页面自动跟随**
+* **双采集内核**：① 轻量内核（默认）——纯代码直连 wss，连接秒级、零浏览器进程；② 浏览器内核——真实 Chrome headless + CDP 旁观，最稳、抖音改协议自动跟随
 
 * **统一事件协议**：抖音私有 protobuf → 标准化 `DanmakuEvent`，消费端零感知
 
@@ -74,9 +74,13 @@ flowchart TB
 
 **实时监控**：多房间同时采集，事件流实时展示（头像 / 事件类型 / 来源房间 / 昵称），支持按房间切换查看与事件类型筛选。
 
+
+
 ![控制台-实时监控](docs/screenshots/console-monitor.png)
 
 **对接演示**：WS / SSE / Webhook 三种通道的接入地址、参数与代码示例，底部可在线测试分发通道。
+
+
 
 ![控制台-对接演示](docs/screenshots/console-docs.png)
 
@@ -99,6 +103,15 @@ Spike 阶段实测：抖音对无头 HTTP 客户端（Node fetch + 手工签名 
 4. 按 method 匹配 ChatMessage / GiftMessage / MemberMessage 等，标准化为统一事件
 
 > 无头模式需一次点击手势触发播放器初始化，弹幕 wss 才会建立（已自动处理）。
+
+**轻量内核（`DYHUB_COLLECTOR=lightweight`，默认）**——纯代码直连，适合资源受限 / 追求连接速度的场景：
+
+1. HTTP 获取 cookie 三件套（`ttwid` / `__ac_nonce` / `__ac_signature`）
+2. 从直播间页解析内部 `room_id`
+3. 生成 `a_bogus`（HTTP 签名）与 `signature`（wss 签名，X-Bogus）后直连 `wss://webcast100-ws-web-lq.douyin.com/webcast/im/push/v2/`
+4. 自行维护心跳（5s）与 ack 应答，帧解码链路与浏览器内核共用
+
+两种内核产出**完全相同的标准化事件**，管道 / 分发 / 消费端无感知。
 
 
 
@@ -129,17 +142,17 @@ npm run build && npm start   # 生产模式（或 npm run dev 开发模式）
 
 
 ```
-# 打开控制台
+\# 打开控制台
 
 open http://localhost:8757
 
-# 连接直播间（示例：东方甄选）
+\# 连接直播间（示例：东方甄选）
 
-curl -X POST http://localhost:8757/api/rooms/connect \
+curl -X POST http://localhost:8757/api/rooms/connect \\
 
-  -H 'Content-Type: application/json' \
+&#x20; -H 'Content-Type: application/json' \\
 
-  -d '{"roomId":"708764876300"}'
+&#x20; -d '{"roomId":"708764876300"}'
 ```
 
 控制台左侧可连接多个房间，通过 "查看房间" 下拉在**全部房间混流**与**单房间**之间切换；事件行展示头像、事件类型、来源房间与昵称。
@@ -154,6 +167,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `DYHUB_HOST`   | 监听地址                    | `0.0.0.0` |
 | `DYHUB_CHROME` | Chrome/Chromium 可执行文件路径 | 自动探测      |
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用）     | 无（默认无头）   |
+| `DYHUB_COLLECTOR` | 采集内核：`lightweight`（默认，纯代码）/ `browser`（浏览器+CDP） | `lightweight` |
 
 
 
@@ -168,38 +182,37 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 ```
 {
 
-  "id": "7681626144000791846",
+&#x20; "id": "7681626144000791846",
 
-  "roomId": "708764876300",
+&#x20; "roomId": "708764876300",
 
-  "platform": "douyin",
+&#x20; "platform": "douyin",
 
-  "type": "chat",
+&#x20; "type": "chat",
 
-  "ts": 1788517960528,
+&#x20; "ts": 1788517960528,
 
-  "receivedAt": 1788517960528,
+&#x20; "receivedAt": 1788517960528,
 
-  "user": {
+&#x20; "user": {
 
-    "id": "101652211600",
+&#x20;   "id": "101652211600",
 
-    "nickname": "田💕心",
+&#x20;   "nickname": "田💕心",
 
-    "avatar": "https://p3.douyinpic.com/aweme/100x100/...",
+&#x20;   "avatar": "https://p3.douyinpic.com/aweme/100x100/...",
 
-    "secUid": "MS4wLjAB..."
+&#x20;   "secUid": "MS4wLjAB..."
 
-  },
+&#x20; },
 
-  "data": { "content": "劲道牛肉丸，3袋立享88折！" }
+&#x20; "data": { "content": "劲道牛肉丸，3袋立享88折！" }
 
 }
 ```
 
 > `roomId`
->
->  统一为用户连接的房间号（web_rid），与房间管理 / 订阅过滤一致。
+> 统一为用户连接的房间号（web_rid），与房间管理 / 订阅过滤一致。
 
 **事件类型**：
 
@@ -226,15 +239,15 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 
 
 ```
-const ws = new WebSocket('ws://localhost:8757/ws?roomId=708764876300&types=chat,gift,member');
+const ws = new WebSocket('ws://localhost:8757/ws?roomId=708764876300\&types=chat,gift,member');
 
 ws.onmessage = (m) => {
 
-  const ev = JSON.parse(m.data);
+&#x20; const ev = JSON.parse(m.data);
 
-  if (ev.type === '__hello') return; // 握手消息
+&#x20; if (ev.type === '\_\_hello') return; // 握手消息
 
-  console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
+&#x20; console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
 
 };
 ```
@@ -248,9 +261,9 @@ const es = new EventSource('http://localhost:8757/api/events?types=chat,gift');
 
 es.onmessage = (e) => {
 
-  const ev = JSON.parse(e.data);
+&#x20; const ev = JSON.parse(e.data);
 
-  console.log(ev);
+&#x20; console.log(ev);
 
 };
 ```
@@ -260,15 +273,15 @@ es.onmessage = (e) => {
 
 
 ```
-curl -X POST http://localhost:8757/api/webhooks \
+curl -X POST http://localhost:8757/api/webhooks \\
 
-  -H 'Content-Type: application/json' \
+&#x20; -H 'Content-Type: application/json' \\
 
-  -d '{"roomId":"708764876300","url":"https://your-server/hook","secret":"your-secret"}'
+&#x20; -d '{"roomId":"708764876300","url":"https://your-server/hook","secret":"your-secret"}'
 
-# 事件将 POST 到 url，带签名头：
+\# 事件将 POST 到 url，带签名头：
 
-# X-DyHub-Signature: sha256=<HMAC-SHA256(secret, body)>
+\# X-DyHub-Signature: sha256=\<HMAC-SHA256(secret, body)>
 ```
 
 **通用参数**（WS / SSE）：`roomId`（选填，订阅指定房间，缺省全部）、`types`（选填，逗号分隔的事件类型过滤）。
@@ -311,7 +324,8 @@ src/
 
 ├── collector/
 
-│   ├── browser.ts           # 浏览器管理（Chrome 探测 / 页面 / CDP）
+│   ├── browser.ts           # 浏览器内核：Chrome 探测 / 页面 / CDP
+│   ├── lightweightSession.ts # 轻量内核：纯代码 wss 直连（cookie 链 / 签名 / 心跳 / ack）
 
 │   ├── liveSession.ts       # 单直播间会话（帧监听 / 状态机）
 
@@ -348,38 +362,60 @@ src/
 
 ### 方式一：Docker Compose（推荐）
 
-```bash
+
+
+```
 docker compose up -d --build
 
-# 打开控制台
+\# 打开控制台
+
 open http://localhost:8757
 
-# 连接直播间（示例：东方甄选）
-curl -X POST http://localhost:8757/api/rooms/connect \
-  -H 'Content-Type: application/json' \
-  -d '{"roomId":"708764876300"}'
+\# 连接直播间（示例：东方甄选）
 
-# 查看日志
+curl -X POST http://localhost:8757/api/rooms/connect \\
+
+&#x20; -H 'Content-Type: application/json' \\
+
+&#x20; -d '{"roomId":"708764876300"}'
+
+\# 查看日志
+
 docker compose logs -f dyhub
 ```
 
 ### 方式二：docker run
 
-```bash
+
+
+```
 docker build -t dyhub .
+
 docker run -d --name dyhub -p 8757:8757 --shm-size=2g dyhub
 ```
 
-> **为什么需要 `--shm-size=2g`**：Chromium 渲染依赖共享内存 `/dev/shm`，Docker 默认仅 64MB，会导致采集页面崩溃。Compose 已内置该配置。
+> **为什么需要&#x20;**
+>
+> `--shm-size=2g`
+>
+> ：Chromium 渲染依赖共享内存 
+>
+> `/dev/shm`
+>
+> ，Docker 默认仅 64MB，会导致采集页面崩溃。Compose 已内置该配置。
 
 ### 配置说明
 
-| 项 | 说明 |
-| --- | --- |
-| `DYHUB_PORT` / `DYHUB_HOST` | 默认 `8757` / `0.0.0.0`，改端口时同步改端口映射 |
-| `DYHUB_HEADED` | 容器内保持 `0`（无头），不要打开有头 |
-| `DYHUB_CHROME` | 镜像已内置 `/usr/bin/chromium` |
-| 健康检查 | 每 30s 探测 `/api/stats`，`docker ps` 可查状态 |
+
+
+| 项                           | 说明                                     |
+| --------------------------- | -------------------------------------- |
+| `DYHUB_PORT` / `DYHUB_HOST` | 默认 `8757` / `0.0.0.0`，改端口时同步改端口映射      |
+| `DYHUB_HEADED`              | 容器内保持 `0`（无头），不要打开有头                   |
+| `DYHUB_CHROME`              | 镜像已内置 `/usr/bin/chromium`              |
+| 健康检查                        | 每 30s 探测 `/api/stats`，`docker ps` 可查状态 |
+
+
 
 ***
 
@@ -396,7 +432,7 @@ sudo apt install -y chromium-browser
 
 npm install && npm run build
 
-DYHUB_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
+DYHUB\_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
 ```
 
 建议用 systemd 常驻：`Restart=always` + `WorkingDirectory` 指向项目目录。
@@ -427,7 +463,7 @@ DYHUB_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
 
 ## ❓ 常见问题
 
-**Q：**`npm run build`** 报 **`Unable to resolve @typescript/typescript-darwin-x64`
+**Q：**`npm run build`\*\* 报 \*\*`Unable to resolve @typescript/typescript-darwin-x64`
 
 TypeScript 7 使用原生平台包，npm 按安装时的 Node 架构选择（arm64 /x64）。若运行 `tsc` 的 Node 与安装依赖时的架构不一致，会缺对应平台包。修复：
 
@@ -436,12 +472,12 @@ TypeScript 7 使用原生平台包，npm 按安装时的 Node 架构选择（arm
 ```
 npm install -f @typescript/typescript-darwin-x64   # 或 -arm64，按实际报错
 
-# 更推荐：统一 Node 版本后重新 npm install
+\# 更推荐：统一 Node 版本后重新 npm install
 ```
 
-**Q：连接后房间一直 **`connecting`**（0 帧）**
+**Q：连接后房间一直&#x20;**`connecting`**（0 帧）**
 
-多为首次启动采集浏览器较慢（页面加载 + 播放器初始化），等待 10~30 秒；若持续不进入 `live`，检查直播间是否在直播、以及 `DYHUB_CHROME` 指向的浏览器版本。
+多为首次启动采集浏览器较慢（页面加载 + 播放器初始化），等待 10\~30 秒；若持续不进入 `live`，检查直播间是否在直播、以及 `DYHUB_CHROME` 指向的浏览器版本。
 
 **Q：会被抖音风控吗？**
 
