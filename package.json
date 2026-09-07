@@ -1,0 +1,62 @@
+{
+  "name": "dyhub",
+  "version": "0.1.0",
+  "description": "抖音直播弹幕中台基座：自研采集内核（真实浏览器 + CDP 帧截获）+ 统一事件协议 + WS/SSE/Webhook 解耦分发",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json && rm -rf dist/ui && cp -r src/ui dist/ui",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "douyin",
+    "danmaku",
+    "live",
+    "live-streaming",
+    "websocket",
+    "sse",
+    "webhook",
+    "cdp",
+    "弹幕",
+    "直播"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ymstar/dyhub.git"
+  },
+  "homepage": "https://github.com/ymstar/dyhub#readme",
+  "bugs": {
+    "url": "https://github.com/ymstar/dyhub/issues"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.3.0",
+    "fastify": "^5.12.3",
+    "long": "^5.3.2",
+    "pako": "^3.0.1",
+    "playwright-core": "^1.62.1",
+    "protobufjs": "^8.8.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/pako": "^2.0.4",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "optionalDependencies": {
+    "@typescript/typescript-darwin-x64": "^7.0.2",
+    "@typescript/typescript-darwin-arm64": "^7.0.2"
+  }
+}

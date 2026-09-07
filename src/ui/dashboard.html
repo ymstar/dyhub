@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DyHub 弹幕中台控制台</title>
+<style>
+  :root {
+    --bg: #F4F3EE; --card: #FFFFFF; --border: #E4E3DD;
+    --text: #1A1B1C; --muted: #6B7280; --accent: #A3D5E8; --accent-dark: #4a90b8;
+    --chat: #4a90b8; --gift: #d9a520; --member: #3c9a5f; --follow: #e07a3f; --like: #d65f8f; --room: #7a7a85;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header h1 span { color: var(--accent-dark); }
+  .stat { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+  .stat b { color: var(--text); font-size: 14px; }
+  #connDot { width: 10px; height: 10px; border-radius: 50%; background: #bbb; display: inline-block; }
+  #connDot.on { background: #52C41A; }
+  #connDot.off { background: #EA6668; }
+  .tabs { display: flex; gap: 4px; margin-left: auto; background: #eee; border-radius: 10px; padding: 3px; }
+  .tab { padding: 6px 16px; border: none; background: transparent; border-radius: 8px; font-size: 13px; cursor: pointer; color: var(--muted); font-weight: 500; }
+  .tab.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+  .view { display: none; height: 100%; }
+  .view.active { display: flex; }
+  .view-monitor { flex-direction: row; }
+  .main { flex: 1; display: flex; min-height: 0; }
+  .side { width: 320px; border-right: 1px solid var(--border); background: var(--card); padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+  .panel-title { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+  .room-add { display: flex; gap: 8px; }
+  .room-add input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+  .room-add input:focus { border-color: var(--accent-dark); }
+  button { padding: 8px 14px; border: none; border-radius: 8px; background: var(--accent); color: #123; font-size: 13px; cursor: pointer; font-weight: 500; }
+  button:hover { filter: brightness(0.96); }
+  button.danger { background: #f5d0cc; color: #a33; }
+  button.ghost { background: #eee; color: var(--text); }
+  .room-list { display: flex; flex-direction: column; gap: 8px; }
+  .room-item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .room-item.selectable { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .room-item.selectable:hover { border-color: var(--accent-dark); background: #f8fbfd; }
+  .room-item.active { border-color: var(--accent-dark); background: #eef6fb; box-shadow: 0 0 0 1px var(--accent-dark); }
+  .room-view { display: flex; flex-direction: column; gap: 8px; }
+  .room-view select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: #fff; color: var(--text); }
+  .room-view select:focus { border-color: var(--accent-dark); }
+  .roompill { flex: 0 0 auto; font-size: 10px; padding: 1px 6px; border-radius: 10px; background: #ececf2; color: #6b6b78; align-self: center; font-family: 'SF Mono', Menlo, monospace; }
+  .room-item .rid { font-size: 13px; font-weight: 500; word-break: break-all; }
+  .room-item .st { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
+  .st.live { background: #d9f0e3; color: #2d7a4c; }
+  .st.connecting { background: #fdf0d5; color: #a8781a; }
+  .st.closed { background: #f3dada; color: #a33; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .filters label { font-size: 12px; display: flex; align-items: center; gap: 4px; background: #f4f4f2; border-radius: 20px; padding: 4px 10px; cursor: pointer; }
+  .filters input { accent-color: var(--accent-dark); }
+
+  .feed { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .ev { display: flex; gap: 10px; align-items: baseline; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; animation: fadein 0.25s; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  .tag { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 20px; color: #fff; }
+  .tag.chat { background: var(--chat); } .tag.gift { background: var(--gift); } .tag.member { background: var(--member); }
+  .tag.follow { background: var(--follow); } .tag.like { background: var(--like); } .tag.room { background: var(--room); } .tag.unknown { background: #999; }
+  .ev .who { font-weight: 600; color: var(--accent-dark); flex: 0 0 auto; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; object-fit: cover; align-self: center; background: #eee; }
+  .avatar-fallback { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+  .ev .what { flex: 1; word-break: break-word; }
+  .ev .tm { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
+  .empty { color: var(--muted); text-align: center; padding: 40px; font-size: 13px; }
+  footer { border-top: 1px solid var(--border); background: var(--card); padding: 8px 20px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+
+  /* 对接演示视图 */
+  .view-docs { overflow-y: auto; padding: 20px; flex-direction: column; gap: 16px; }
+  .doc-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+  .doc-card { flex: 1 1 320px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-sizing: border-box; }
+  .doc-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; }
+  .badge.ws { background: #dcebf5; color: #2d6a9e; }
+  .badge.sse { background: #d9f0e3; color: #2d7a4c; }
+  .badge.wh { background: #fdf0d5; color: #a8781a; }
+  .doc-card .addr { font-size: 12px; background: #f4f4f2; border-radius: 8px; padding: 8px 10px; margin: 8px 0; word-break: break-all; font-family: monospace; color: #333; position: relative; }
+  .doc-card .addr .copy { position: absolute; right: 6px; top: 6px; font-size: 11px; padding: 3px 8px; background: #fff; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+  .doc-card .params { font-size: 12px; color: var(--muted); line-height: 1.7; }
+  .doc-card .params b { color: var(--text); }
+  .doc-card pre { background: #f8f8f6; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 11.5px; overflow-x: auto; line-height: 1.6; font-family: 'SF Mono', Menlo, monospace; }
+  .doc-card pre code { color: #333; }
+
+  .test-area { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .test-head { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .test-head .field { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .test-head select, .test-head input { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; }
+  .test-head input { width: 190px; }
+  .test-status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .test-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #bbb; display: inline-block; }
+  .test-status .dot.on { background: #52C41A; }
+  .test-status .dot.off { background: #EA6668; }
+  .test-feed { height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; background: #fafaf8; padding: 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; }
+  .test-feed .line { padding: 2px 0; border-bottom: 1px dashed #ecece8; color: #333; word-break: break-all; }
+  .test-feed .line .ty { color: var(--accent-dark); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DyHub <span>弹幕中台</span></h1>
+  <div class="stat">
+    <span>WS 客户端 <b id="stClients">0</b></span>
+    <span>累计事件 <b id="stEvents">0</b></span>
+    <span>事件/分 <b id="stRate">0</b></span>
+    <span>房间 <b id="stRooms">0</b></span>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-view="monitor">实时监控</button>
+    <button class="tab" data-view="docs">对接演示</button>
+  </div>
+</header>
+
+<!-- 视图一：实时监控 -->
+<div class="view view-monitor active" id="view-monitor">
+  <div class="main">
+    <aside class="side">
+      <div>
+        <div class="panel-title">连接直播间</div>
+        <div class="room-add">
+          <input id="roomInput" placeholder="房间号，如 708764876300" />
+          <button id="btnConnect">连接</button>
+        </div>
+      </div>
+      <div>
+        <div class="panel-title">已连接房间</div>
+        <div class="room-list" id="roomList"></div>
+      </div>
+      <div>
+        <div class="panel-title">事件筛选</div>
+        <div class="filters" id="filters">
+          <label><input type="checkbox" value="chat" checked />弹幕</label>
+          <label><input type="checkbox" value="gift" checked />礼物</label>
+          <label><input type="checkbox" value="member" checked />进场</label>
+          <label><input type="checkbox" value="follow" checked />关注</label>
+          <label><input type="checkbox" value="like" />点赞</label>
+          <label><input type="checkbox" value="room" />统计</label>
+          <label><input type="checkbox" value="unknown" />其他</label>
+        </div>
+      </div>
+      <div>
+        <div class="panel-title">查看房间</div>
+        <div class="room-view">
+          <select id="roomSelect"><option value="all">全部房间（混流）</option></select>
+          <div style="font-size:11px;color:var(--muted);">点击下方房间也可切换查看</div>
+        </div>
+      </div>
+    </aside>
+    <div class="feed" id="feed">
+      <div class="empty" id="empty">暂无事件。连接直播间后，实时弹幕将显示在这里。</div>
+    </div>
+  </div>
+</div>
+
+<!-- 视图二：对接演示 -->
+<div class="view view-docs" id="view-docs">
+  <div class="doc-cards">
+    <!-- WebSocket -->
+    <div class="doc-card">
+      <h3><span class="badge ws">WebSocket</span>实时推送 · 低延迟</h3>
+      <div class="addr" id="wsAddr"></div>
+      <div class="params">
+        参数：<b>roomId</b>（选填，订阅指定房间）· <b>types</b>（逗号分隔，chat,gift,member,follow,like,room,unknown）
+        <br/>场景：网页弹幕墙 / 弹幕游戏 / 实时看板
+      </div>
+      <pre><code id="wsCode"></code></pre>
+    </div>
+    <!-- SSE -->
+    <div class="doc-card">
+      <h3><span class="badge sse">SSE</span>EventSource · 一行接入</h3>
+      <div class="addr" id="sseAddr"></div>
+      <div class="params">
+        参数：同 WebSocket（<b>roomId</b> / <b>types</b>），GET 请求
+        <br/>场景：浏览器原生订阅，无需额外依赖
+      </div>
+      <pre><code id="sseCode"></code></pre>
+    </div>
+    <!-- Webhook -->
+    <div class="doc-card">
+      <h3><span class="badge wh">Webhook</span>服务端回调 · 签名鉴权</h3>
+      <div class="addr">POST /api/webhooks</div>
+      <div class="params">
+        请求体：<b>roomId</b>（必填）· <b>url</b>（必填，接收地址）· <b>secret</b>（选填，HMAC-SHA256 签名）
+        <br/>事件 POST 到 url，签名头：<b>X-DyHub-Signature: sha256=&lt;hmac&gt;</b>
+      </div>
+      <pre><code id="whCode"></code></pre>
+    </div>
+  </div>
+
+  <!-- 实时对接测试 -->
+  <div class="test-area">
+    <div style="font-size:14px;font-weight:600;margin-bottom:10px;">实时对接测试</div>
+    <div class="test-head">
+      <div class="field">通道 <select id="testChannel"><option value="ws">WebSocket</option><option value="sse">SSE</option></select></div>
+      <div class="field">类型 <input id="testTypes" value="chat,gift,member,follow" placeholder="chat,gift,member" style="width:150px;" /></div>
+      <div class="field">房间 <input id="testRoom" placeholder="空=全部房间" /></div>
+      <button id="btnTest">开始</button>
+      <button id="btnTestStop" class="danger" disabled>停止</button>
+      <div class="test-status"><span class="dot" id="testDot"></span><span id="testStatus">未连接</span></div>
+    </div>
+    <div class="test-feed" id="testFeed"><div class="empty" style="padding:12px;">点击"开始"订阅事件流，验证分发通道。</div></div>
+  </div>
+</div>
+
+<footer>
+  <span>DyHub v0.1 · 采集内核：真实浏览器 + CDP 帧截获</span>
+  <span>消费端接入：WS <code>/ws</code> · SSE <code>/api/events</code> · Webhook <code>/api/webhooks</code></span>
+</footer>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  let ws = null, events = 0, rateCounter = 0, testWs = null, testEs = null;
+  const label = { chat: '弹幕', gift: '礼物', member: '进场', follow: '关注', like: '点赞', room: '统计', unknown: '其他' };
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const base = `${location.host}`;
+
+  // ---- Tab 切换 ----
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.onclick = () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      $('view-' + t.dataset.view).classList.add('active');
+    };
+  });
+
+  // ---- 对接演示：地址与代码 ----
+  const wsAddr = `${wsProto}://${base}/ws?roomId=7681455183867415315&types=chat,gift`;
+  const sseAddr = `http://${base}/api/events?types=chat,gift`;
+  $('wsAddr').innerHTML = `<code>${wsAddr}</code><button class="copy" onclick="navigator.clipboard.writeText('${wsAddr}')">复制</button>`;
+  $('sseAddr').innerHTML = `<code>${sseAddr}</code><button class="copy" onclick="navigator.clipboard.writeText('${sseAddr}')">复制</button>`;
+  $('wsCode').textContent = `// 弹幕墙 / 弹幕游戏
+const ws = new WebSocket('${wsAddr}');
+ws.onmessage = (m) => {
+  const ev = JSON.parse(m.data);
+  if (ev.type === '__hello') return;
+  // ev: { id, roomId, type, ts, user, data }
+  console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
+};`;
+  $('sseCode').textContent = `// 浏览器一行接入
+const es = new EventSource('${sseAddr}');
+es.onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  console.log(ev);
+};`;
+  $('whCode').textContent = `# 注册 Webhook
+curl -X POST http://${base}/api/webhooks \\
+  -H 'Content-Type: application/json' \\
+  -d '{"roomId":"708764876300","url":"https://your-server/hook","secret":"your-secret"}'
+
+# 事件将 POST 到 url，带签名头：
+# X-DyHub-Signature: sha256=<HMAC-SHA256(secret, body)>`;
+
+  // ---- 实时对接测试 ----
+  function setTestStatus(txt, on) {
+    $('testStatus').textContent = txt;
+    $('testDot').className = 'dot ' + (on ? 'on' : 'off');
+  }
+  function testAppend(ev) {
+    const feed = $('testFeed');
+    const empty = feed.querySelector('.empty'); if (empty) empty.remove();
+    const line = document.createElement('div');
+    line.className = 'line';
+    line.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    const t = new Date(ev.receivedAt || Date.now()).toLocaleTimeString('zh-CN', { hour12: false });
+    let who = ev.user?.nickname || '';
+    let what = ev.data?.content || ev.data?.method || ev.type;
+    if (ev.type === 'gift') what = `送出 ${ev.data.giftName} ×${ev.data.comboCount || ev.data.repeatCount || 1}`;
+    if (ev.type === 'member') what = '进入直播间';
+    if (ev.type === 'follow') what = '关注了主播';
+    if (ev.type === 'room') what = `在线 ${(ev.data.total || 0).toLocaleString()} 人`;
+    const av = testAvatarHTML(ev.user);
+    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${escapeHtml(String(what))}</span>`;
+    feed.appendChild(line);
+    while (feed.children.length > 300) feed.removeChild(feed.firstChild);
+    feed.scrollTop = feed.scrollHeight;
+  }
+  function testAvatarHTML(user) {
+    if (user && user.avatar) {
+      const initial = escapeHtml((user.nickname || '?').charAt(0));
+      return `<img class="avatar" style="width:20px;height:20px;" src="${escapeHtml(user.avatar)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.outerHTML='<span class=&quot;avatar-fallback&quot; style=&quot;width:20px;height:20px;font-size:10px;&quot;>${initial}</span>'" />`;
+    }
+    return '';
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  $('btnTest').onclick = () => {
+    stopTest();
+    $('testFeed').innerHTML = '<div class="empty" style="padding:12px;">订阅中...</div>';
+    const channel = $('testChannel').value;
+    const types = $('testTypes').value.trim() || 'chat,gift,member,follow,like,room';
+    const room = $('testRoom').value.trim();
+    const params = new URLSearchParams();
+    if (room) params.set('roomId', room);
+    params.set('types', types);
+    if (channel === 'ws') {
+      testWs = new WebSocket(`${wsProto}://${base}/ws?${params}`);
+      testWs.onopen = () => { setTestStatus('已连接 (WebSocket)', true); };
+      testWs.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (ev.type !== '__hello') testAppend(ev); } catch {} };
+      testWs.onclose = () => { setTestStatus('连接已断开', false); };
+      testWs.onerror = () => setTestStatus('连接错误', false);
+    } else {
+      testEs = new EventSource(`http://${base}/api/events?${params}`);
+      testEs.onopen = () => setTestStatus('已连接 (SSE)', true);
+      testEs.onmessage = (e) => { try { testAppend(JSON.parse(e.data)); } catch {} };
+      testEs.onerror = () => setTestStatus('连接异常，重连中...', false);
+    }
+    $('btnTest').disabled = true; $('btnTestStop').disabled = false;
+  };
+  function stopTest() {
+    if (testWs) { testWs.close(); testWs = null; }
+    if (testEs) { testEs.close(); testEs = null; }
+    setTestStatus('未连接', false);
+    $('btnTest').disabled = false; $('btnTestStop').disabled = true;
+  }
+  $('btnTestStop').onclick = stopTest;
+
+  // ---- 监控视图逻辑 ----
+  // 查看房间：'all' = 全部房间混流；否则为单个 roomId（前端过滤，切换即时生效）
+  let currentRoom = 'all';
+  const roomSelect = $('roomSelect');
+  function switchRoom(rid) {
+    currentRoom = rid;
+    const feed = $('feed');
+    feed.innerHTML = `<div class="empty">正在查看${rid === 'all' ? '全部房间（混流）' : '房间 ' + rid}…</div>`;
+    // 同步房间列表高亮
+    document.querySelectorAll('.room-item').forEach(el => el.classList.toggle('active', el.dataset.room === rid));
+  }
+  roomSelect.addEventListener('change', () => switchRoom(roomSelect.value));
+
+  function connectWS() {
+    const types = [...document.querySelectorAll('#filters input:checked')].map(i => i.value).join(',');
+    const params = new URLSearchParams();
+    if (types) params.set('types', types);
+    ws = new WebSocket(`${wsProto}://${base}/ws?${params}`);
+    ws.onopen = () => {};
+    ws.onclose = () => { setTimeout(connectWS, 3000); };
+    ws.onerror = () => ws.close();
+    ws.onmessage = (m) => {
+      try { const ev = JSON.parse(m.data); if (ev.type === '__hello') return; append(ev); } catch {}
+    };
+  }
+
+  function append(ev) {
+    // 房间过滤：只看当前选中的房间
+    if (currentRoom !== 'all' && String(ev.roomId) !== String(currentRoom)) return;
+    events++; rateCounter++;
+    $('stEvents').textContent = events.toLocaleString();
+    const feed = $('feed');
+    const empty = $('empty'); if (empty) empty.remove();
+    let who = '', what = '';
+    if (ev.user) who = ev.user.nickname || ev.user.id;
+    switch (ev.type) {
+      case 'chat': what = ev.data.content; break;
+      case 'gift': what = `送出 <b>${ev.data.giftName}</b> ×${ev.data.comboCount || ev.data.repeatCount || 1}${ev.data.diamondCount ? `（${ev.data.diamondCount}钻）` : ''}`; break;
+      case 'member': what = '进入直播间'; break;
+      case 'follow': what = '关注了主播'; break;
+      case 'like': what = `点赞 ${ev.data.count || 1}`; break;
+      case 'room': what = `在线 ${(ev.data.total || 0).toLocaleString()} 人`; break;
+      default: what = ev.data.method || '未知消息';
+    }
+    const el = document.createElement('div');
+    el.className = 'ev';
+    const tm = new Date(ev.receivedAt || Date.now()).toLocaleTimeString('zh-CN', { hour12: false });
+    const avatarHtml = avatarHTML(ev.user);
+    el.innerHTML = `<span class="tag ${ev.type}">${label[ev.type] || ev.type}</span><span class="roompill">${escapeHtml(String(ev.roomId))}</span>${avatarHtml}<span class="who">${escapeHtml(who)}</span><span class="what">${what}</span><span class="tm">${tm}</span>`;
+    feed.appendChild(el);
+    while (feed.children.length > 800) feed.removeChild(feed.firstChild);
+    feed.scrollTop = feed.scrollHeight;
+  }
+  // 头像 HTML：有 URL 用 img（no-referrer 防图床 403），失败回退首字圆形
+  function avatarHTML(user) {
+    if (user && user.avatar) {
+      const initial = escapeHtml((user.nickname || '?').charAt(0));
+      return `<img class="avatar" src="${escapeHtml(user.avatar)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.outerHTML='<span class=&quot;avatar-fallback&quot;>${initial}</span>'" />`;
+    }
+    if (user && user.nickname) {
+      return `<span class="avatar-fallback">${escapeHtml(user.nickname.charAt(0))}</span>`;
+    }
+    return '';
+  }
+
+  async function refresh() {
+    try {
+      const s = await (await fetch('/api/stats')).json();
+      $('stClients').textContent = s.wsClients;
+      $('stRooms').textContent = s.rooms.length;
+      // 重建"查看房间"下拉选项，保留当前选中
+      const roomIds = s.rooms.map(r => String(r.roomId));
+      const prev = roomSelect.value;
+      const cur = roomIds.includes(prev) ? prev : 'all';
+      roomSelect.innerHTML = '<option value="all">全部房间（混流）</option>' +
+        roomIds.map(id => `<option value="${id}">${id}</option>`).join('');
+      roomSelect.value = cur;
+      currentRoom = cur;
+      // 房间列表：可点击切换查看
+      const list = $('roomList');
+      list.innerHTML = '';
+      for (const r of s.rooms) {
+        const rid = String(r.roomId);
+        const item = document.createElement('div');
+        item.className = 'room-item selectable' + (rid === cur ? ' active' : '');
+        item.dataset.room = rid;
+        item.onclick = () => { roomSelect.value = rid; switchRoom(rid); };
+        item.innerHTML = `<div><div class="rid">${rid}</div><div style="font-size:11px;color:var(--muted)">${r.msgCount.toLocaleString()} 条消息</div></div><span class="st ${r.status}">${r.status === 'live' ? '直播中' : r.status}</span>`;
+        list.appendChild(item);
+      }
+    } catch {}
+  }
+
+  async function connect() {
+    const roomId = $('roomInput').value.trim();
+    if (!roomId) return;
+    $('btnConnect').disabled = true;
+    try {
+      const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId }) });
+      const j = await r.json();
+      if (!r.ok) alert(j.error || '连接失败'); else $('roomInput').value = '';
+    } finally { $('btnConnect').disabled = false; refresh(); }
+  }
+
+  $('btnConnect').onclick = connect;
+  $('roomInput').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+  document.querySelectorAll('#filters input').forEach(i => i.addEventListener('change', () => { if (ws) ws.close(); }));
+  setInterval(() => { $('stRate').textContent = (rateCounter * 60 / 30).toFixed(0); rateCounter = 0; refresh(); }, 30000);
+  connectWS();
+  refresh();
+})();
+</script>
+</body>
+</html>

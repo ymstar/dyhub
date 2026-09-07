@@ -1,0 +1,22 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 日志
+*.log
+logs/
+*.pid
+
+# 环境变量（可能包含本机路径 / 密钥）
+.env
+.env.*
+
+# spike 为本地研究脚本（含真实抓包参数），不入库
+spike/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
