@@ -6,12 +6,44 @@ DyHub 是一个抖音直播弹幕采集与分发中台：**采集内核自研**�
 
 
 
-```
-采集内核 ──▶ 事件管道（标准化 / 去重 / 总线） ──▶ 分发层（WS / SSE / Webhook） ──▶ 消费端
+```mermaid
+flowchart TB
+    subgraph C["采集层 Collector"]
+        B["Chrome / Chromium（真实浏览器）<br/>签名・设备指纹・Cookie 由页面自行完成"]
+        CDP["CDP 旁观<br/>Network.webSocketFrameReceived"]
+        LS["LiveSession<br/>帧解码（gzip → PushFrame → Message[]）"]
+    end
 
-&#x20;   ▲                                                                              ▲
+    subgraph P["管道层 Pipeline"]
+        N["Normalizer<br/>抖音私有协议 → 统一事件"]
+        D["Dedupe<br/>滑动窗口去重"]
+        EB["EventBus<br/>订阅 / 发布总线"]
+    end
 
-&#x20;   └──────────────── 管理 API + 控制台（控制面） ──────────────────────────────────┘
+    subgraph DI["分发层 Dispatch"]
+        WS["WebSocket<br/>/ws"]
+        SSE["SSE<br/>/api/events"]
+        WH["Webhook<br/>HMAC-SHA256"]
+    end
+
+    subgraph M["控制面 Control Plane"]
+        API["管理 API<br/>/api/rooms · /api/stats · /api/webhooks"]
+        UI["控制台 UI<br/>实时监控 · 对接演示"]
+    end
+
+    subgraph K["消费端 Consumers"]
+        A1["弹幕墙 / 弹幕游戏"]
+        A2["AI 助理 / 数字人"]
+        A3["数据看板 / 运营分析"]
+    end
+
+    B --> CDP --> LS --> N --> D --> EB
+    EB --> WS & SSE & WH
+    WS --> A1
+    SSE --> A2
+    WH --> A3
+    API -. 房间管理 / 统计 .-> C
+    UI -. HTTP .-> API
 ```
 
 
@@ -33,6 +65,20 @@ DyHub 是一个抖音直播弹幕采集与分发中台：**采集内核自研**�
 * **可视化控制台**：实时弹幕流（头像 / 事件类型 / 来源房间）、事件筛选、房间管理、对接演示与在线测试
 
 * **可插拔扩展**：新增平台只需写一个 collector 适配器，复用同一套事件协议与分发层
+
+
+
+***
+
+## 🖼️ 界面预览
+
+**实时监控**：多房间同时采集，事件流实时展示（头像 / 事件类型 / 来源房间 / 昵称），支持按房间切换查看与事件类型筛选。
+
+![控制台-实时监控](docs/screenshots/console-monitor.png)
+
+**对接演示**：WS / SSE / Webhook 三种通道的接入地址、参数与代码示例，底部可在线测试分发通道。
+
+![控制台-对接演示](docs/screenshots/console-docs.png)
 
 
 
