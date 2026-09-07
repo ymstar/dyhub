@@ -7,6 +7,7 @@ services:
     environment:
       DYHUB_PORT: "8757"
       DYHUB_HOST: "0.0.0.0"
+      # 默认无头采集；如需调试可设 DYHUB_HEADED: "1"
       DYHUB_HEADED: "0"
     # Chromium 渲染依赖共享内存；默认 64MB 易导致页面崩溃
     shm_size: "2gb"

@@ -28,12 +28,15 @@ async function main() {
   const dedupe = new EventDeduplicator(200_000);
 
   // 2. 采集内核
+  // DYHUB_HEADED：仅当显式等于 "1" / "true"（不区分大小写）时开启有头模式，其余一律无头。
+  // 注意不能用 !process.env.DYHUB_HEADED：环境变量字符串 "0" / "false" 也是 truthy，会误开有头导致无 XServer 崩溃。
+  const headed = ['1', 'true'].includes((process.env.DYHUB_HEADED ?? '').trim().toLowerCase());
   const browser = new BrowserManager({
     executablePath: process.env.DYHUB_CHROME || undefined,
-    headless: !process.env.DYHUB_HEADED,
+    headless: !headed,
   });
   await browser.init();
-  console.log(`[dyhub] 采集浏览器就绪（headless=${!process.env.DYHUB_HEADED}）`);
+  console.log(`[dyhub] 采集浏览器就绪（headless=${!headed}）`);
 
   const collector = new Collector({
     browser,
