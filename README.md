@@ -129,17 +129,17 @@ npm run build && npm start   # 生产模式（或 npm run dev 开发模式）
 
 
 ```
-\# 打开控制台
+# 打开控制台
 
 open http://localhost:8757
 
-\# 连接直播间（示例：东方甄选）
+# 连接直播间（示例：东方甄选）
 
-curl -X POST http://localhost:8757/api/rooms/connect \\
+curl -X POST http://localhost:8757/api/rooms/connect \
 
-&#x20; -H 'Content-Type: application/json' \\
+  -H 'Content-Type: application/json' \
 
-&#x20; -d '{"roomId":"708764876300"}'
+  -d '{"roomId":"708764876300"}'
 ```
 
 控制台左侧可连接多个房间，通过 "查看房间" 下拉在**全部房间混流**与**单房间**之间切换；事件行展示头像、事件类型、来源房间与昵称。
@@ -168,31 +168,31 @@ curl -X POST http://localhost:8757/api/rooms/connect \\
 ```
 {
 
-&#x20; "id": "7681626144000791846",
+  "id": "7681626144000791846",
 
-&#x20; "roomId": "708764876300",
+  "roomId": "708764876300",
 
-&#x20; "platform": "douyin",
+  "platform": "douyin",
 
-&#x20; "type": "chat",
+  "type": "chat",
 
-&#x20; "ts": 1788517960528,
+  "ts": 1788517960528,
 
-&#x20; "receivedAt": 1788517960528,
+  "receivedAt": 1788517960528,
 
-&#x20; "user": {
+  "user": {
 
-&#x20;   "id": "101652211600",
+    "id": "101652211600",
 
-&#x20;   "nickname": "田💕心",
+    "nickname": "田💕心",
 
-&#x20;   "avatar": "https://p3.douyinpic.com/aweme/100x100/...",
+    "avatar": "https://p3.douyinpic.com/aweme/100x100/...",
 
-&#x20;   "secUid": "MS4wLjAB..."
+    "secUid": "MS4wLjAB..."
 
-&#x20; },
+  },
 
-&#x20; "data": { "content": "劲道牛肉丸，3袋立享88折！" }
+  "data": { "content": "劲道牛肉丸，3袋立享88折！" }
 
 }
 ```
@@ -226,15 +226,15 @@ curl -X POST http://localhost:8757/api/rooms/connect \\
 
 
 ```
-const ws = new WebSocket('ws://localhost:8757/ws?roomId=708764876300\&types=chat,gift,member');
+const ws = new WebSocket('ws://localhost:8757/ws?roomId=708764876300&types=chat,gift,member');
 
 ws.onmessage = (m) => {
 
-&#x20; const ev = JSON.parse(m.data);
+  const ev = JSON.parse(m.data);
 
-&#x20; if (ev.type === '\_\_hello') return; // 握手消息
+  if (ev.type === '__hello') return; // 握手消息
 
-&#x20; console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
+  console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
 
 };
 ```
@@ -248,9 +248,9 @@ const es = new EventSource('http://localhost:8757/api/events?types=chat,gift');
 
 es.onmessage = (e) => {
 
-&#x20; const ev = JSON.parse(e.data);
+  const ev = JSON.parse(e.data);
 
-&#x20; console.log(ev);
+  console.log(ev);
 
 };
 ```
@@ -260,15 +260,15 @@ es.onmessage = (e) => {
 
 
 ```
-curl -X POST http://localhost:8757/api/webhooks \\
+curl -X POST http://localhost:8757/api/webhooks \
 
-&#x20; -H 'Content-Type: application/json' \\
+  -H 'Content-Type: application/json' \
 
-&#x20; -d '{"roomId":"708764876300","url":"https://your-server/hook","secret":"your-secret"}'
+  -d '{"roomId":"708764876300","url":"https://your-server/hook","secret":"your-secret"}'
 
-\# 事件将 POST 到 url，带签名头：
+# 事件将 POST 到 url，带签名头：
 
-\# X-DyHub-Signature: sha256=\<HMAC-SHA256(secret, body)>
+# X-DyHub-Signature: sha256=<HMAC-SHA256(secret, body)>
 ```
 
 **通用参数**（WS / SSE）：`roomId`（选填，订阅指定房间，缺省全部）、`types`（选填，逗号分隔的事件类型过滤）。
@@ -396,7 +396,7 @@ sudo apt install -y chromium-browser
 
 npm install && npm run build
 
-DYHUB\_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
+DYHUB_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
 ```
 
 建议用 systemd 常驻：`Restart=always` + `WorkingDirectory` 指向项目目录。
@@ -427,7 +427,7 @@ DYHUB\_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
 
 ## ❓ 常见问题
 
-**Q：**`npm run build`**&#x20;报&#x20;**`Unable to resolve @typescript/typescript-darwin-x64`
+**Q：**`npm run build`** 报 **`Unable to resolve @typescript/typescript-darwin-x64`
 
 TypeScript 7 使用原生平台包，npm 按安装时的 Node 架构选择（arm64 /x64）。若运行 `tsc` 的 Node 与安装依赖时的架构不一致，会缺对应平台包。修复：
 
@@ -436,12 +436,12 @@ TypeScript 7 使用原生平台包，npm 按安装时的 Node 架构选择（arm
 ```
 npm install -f @typescript/typescript-darwin-x64   # 或 -arm64，按实际报错
 
-\# 更推荐：统一 Node 版本后重新 npm install
+# 更推荐：统一 Node 版本后重新 npm install
 ```
 
-**Q：连接后房间一直&#x20;**`connecting`**（0 帧）**
+**Q：连接后房间一直 **`connecting`**（0 帧）**
 
-多为首次启动采集浏览器较慢（页面加载 + 播放器初始化），等待 10\~30 秒；若持续不进入 `live`，检查直播间是否在直播、以及 `DYHUB_CHROME` 指向的浏览器版本。
+多为首次启动采集浏览器较慢（页面加载 + 播放器初始化），等待 10~30 秒；若持续不进入 `live`，检查直播间是否在直播、以及 `DYHUB_CHROME` 指向的浏览器版本。
 
 **Q：会被抖音风控吗？**
 
