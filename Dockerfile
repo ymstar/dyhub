@@ -29,6 +29,9 @@ RUN npm ci --omit=dev
 # 构建产物（含控制台 UI）
 COPY --from=builder /app/dist ./dist
 
+# 轻量采集内核的抖音签名脚本（third_party/douyin-sign，AGPL 声明见其目录 README，独立分发）
+COPY third_party ./third_party
+
 ENV DYHUB_PORT=8757 \
     DYHUB_HOST=0.0.0.0 \
     DYHUB_CHROME=/usr/bin/chromium \
