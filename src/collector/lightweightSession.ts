@@ -107,6 +107,56 @@ export interface LightweightSessionOptions {
   onError?: (err: Error) => void;
 }
 
+// 模块级共享 cookie 会话：多房间并发只跑一次 cookie 链，避免高频请求触发抖音风控
+const sharedJar = new Map<string, string>();
+let sharedJarAt = 0;
+const JAR_TTL_MS = 15 * 60_000;
+const JAR_FAIL_TTL_MS = 30_000;
+
+function storeCookies(headers: Headers) {
+  const all = (headers as any).getSetCookie
+    ? (headers as any).getSetCookie()
+    : (headers.get('set-cookie') || '').split(',').filter(Boolean);
+  for (const c of all) {
+    const kv = c.split(';')[0];
+    const i = kv.indexOf('=');
+    if (i > 0) sharedJar.set(kv.slice(0, i).trim(), kv.slice(i + 1));
+  }
+}
+
+function sharedCookieStr(): string {
+  return [...sharedJar].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+async function ensureSharedCookies(): Promise<void> {
+  if (sharedJarAt && Date.now() - sharedJarAt < JAR_TTL_MS) return;
+  const H = { 'User-Agent': UA, Accept: 'text/html,*/*;q=0.8', 'Accept-Language': 'zh-CN,zh;q=0.9' };
+  sharedJar.clear();
+  sharedJarAt = Date.now();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      let r = await fetch('https://www.douyin.com/', { headers: H, signal: AbortSignal.timeout(10_000) });
+      storeCookies(r.headers);
+      r = await fetch('https://live.douyin.com/', {
+        headers: { ...H, Cookie: sharedCookieStr() },
+        signal: AbortSignal.timeout(10_000),
+      });
+      storeCookies(r.headers);
+      const nonce = sharedJar.get('__ac_nonce') || '';
+      if (nonce && sharedJar.get('ttwid')) {
+        sharedJar.set('__ac_signature', acSignature('www.douyin.com', nonce, UA, Math.floor(Date.now() / 1000)));
+        return;
+      }
+    } catch {
+      // 继续重试
+    }
+    if (attempt < 2) await new Promise((res) => setTimeout(res, 2500 * (attempt + 1)));
+  }
+  // 全部失败：短缓存，允许快速重试
+  sharedJarAt = Date.now() - (JAR_TTL_MS - JAR_FAIL_TTL_MS);
+  throw new Error('获取 cookie（ttwid/__ac_nonce）失败');
+}
+
 export class LightweightSession {
   readonly roomId: string;
   readonly startedAt = Date.now();
@@ -117,7 +167,6 @@ export class LightweightSession {
   private errorMsg = '';
   private frameCount = 0;
   private msgCount = 0;
-  private jar = new Map<string, string>();
   private liveResolve: ((ok: boolean) => void) | null = null;
   private liveTimeout: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
@@ -178,33 +227,9 @@ export class LightweightSession {
     this.liveResolve?.(false);
   }
 
-  private storeCookies(headers: Headers) {
-    const all = (headers as any).getSetCookie
-      ? (headers as any).getSetCookie()
-      : (headers.get('set-cookie') || '').split(',').filter(Boolean);
-    for (const c of all) {
-      const kv = c.split(';')[0];
-      const i = kv.indexOf('=');
-      if (i > 0) this.jar.set(kv.slice(0, i).trim(), kv.slice(i + 1));
-    }
-  }
-
-  private cookieStr(): string {
-    return [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ');
-  }
-
+  /** 连接前确保共享 cookie 会话就绪 */
   private async initCookies(): Promise<void> {
-    const H = { 'User-Agent': UA, Accept: 'text/html,*/*;q=0.8' };
-    let r = await fetch('https://www.douyin.com/', { headers: H });
-    this.storeCookies(r.headers);
-    r = await fetch('https://live.douyin.com/', { headers: H });
-    this.storeCookies(r.headers);
-    const nonce = this.jar.get('__ac_nonce') || '';
-    if (!nonce || !this.jar.get('ttwid')) throw new Error('获取 cookie（ttwid/__ac_nonce）失败');
-    this.jar.set(
-      '__ac_signature',
-      acSignature('www.douyin.com', nonce, UA, Math.floor(Date.now() / 1000)),
-    );
+    await ensureSharedCookies();
   }
 
   /** web_rid → 内部 webcast roomId（抖音间歇限流，最多重试 3 次；成功时顺带解析主播信息） */
@@ -213,7 +238,7 @@ export class LightweightSession {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const r = await fetch(`https://live.douyin.com/${this.roomId}`, {
-          headers: { 'User-Agent': UA, Cookie: this.cookieStr(), Referer: `https://live.douyin.com/${this.roomId}` },
+          headers: { 'User-Agent': UA, Cookie: sharedCookieStr(), Referer: `https://live.douyin.com/${this.roomId}` },
           signal: AbortSignal.timeout(12_000),
         });
         const html = (await r.text()).replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -226,7 +251,7 @@ export class LightweightSession {
       } catch (e) {
         lastErr = e as Error;
       }
-      if (attempt < 2) await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)));
+      if (attempt < 2) await new Promise((res) => setTimeout(res, 2500 * (attempt + 1)));
     }
     throw lastErr ?? new Error('room_id 解析失败');
   }
@@ -282,7 +307,7 @@ export class LightweightSession {
     const signature = getSign(createHash('md5').update(sigParams).digest('hex'));
 
     const url = this.buildWssUrl(roomId, signature);
-    const ttwid = this.jar.get('ttwid') || '';
+    const ttwid = sharedJar.get('ttwid') || '';
 
     await new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(url, {
