@@ -1,8 +1,12 @@
 # DyHub・抖音直播弹幕中台基座
 
+<p align="center">
+  <img src="docs/assets/logo-horizontal.png" alt="DyHub Logo" width="480" />
+</p>
+
 > 自研采集内核・事件全链路标准化・消费端与抖音私有协议完全解耦
 
-DyHub 是一个抖音直播弹幕采集与分发中台：**采集内核自研**（真实浏览器 + CDP 帧截获），产出**统一事件协议**（`DanmakuEvent`），并通过 **WebSocket / SSE / Webhook** 三种通道分发。上游改协议不碰消费端，下游接弹幕墙、弹幕游戏、AI 助理、数据看板只认一种事件。
+DyHub 是一个抖音直播弹幕采集与分发中台：**双采集内核自研**（轻量纯代码直连 + 浏览器 CDP 旁观），产出**统一事件协议**（`DanmakuEvent`），并通过 **WebSocket / SSE / Webhook** 三种通道分发。上游改协议不碰消费端，下游接弹幕墙、弹幕游戏、AI 助理、数据看板只认一种事件。
 
 
 
