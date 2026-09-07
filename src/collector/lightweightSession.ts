@@ -111,7 +111,7 @@ export interface LightweightSessionOptions {
 const sharedJar = new Map<string, string>();
 let sharedJarAt = 0;
 const JAR_TTL_MS = 15 * 60_000;
-const JAR_FAIL_TTL_MS = 30_000;
+const JAR_FAIL_TTL_MS = 60_000;
 
 function storeCookies(headers: Headers) {
   const all = (headers as any).getSetCookie
@@ -130,6 +130,24 @@ function sharedCookieStr(): string {
 
 async function ensureSharedCookies(): Promise<void> {
   if (sharedJarAt && Date.now() - sharedJarAt < JAR_TTL_MS) return;
+
+  // 用户显式提供 cookie（浏览器 F12 复制），完全绕过 cookie 链请求——规避数据中心/容器 IP 风控
+  const envCookie = process.env.DYHUB_COOKIE;
+  if (envCookie && !sharedJar.size) {
+    sharedJar.clear();
+    for (const part of envCookie.split(';')) {
+      const i = part.indexOf('=');
+      if (i > 0) sharedJar.set(part.slice(0, i).trim(), part.slice(i + 1).trim());
+    }
+    const nonce = sharedJar.get('__ac_nonce') || '';
+    if (sharedJar.get('ttwid') && nonce) {
+      sharedJar.set('__ac_signature', acSignature('www.douyin.com', nonce, UA, Math.floor(Date.now() / 1000)));
+      sharedJarAt = Date.now();
+      return;
+    }
+    sharedJar.clear(); // 缺少必需项，回退 HTTP cookie 链
+  }
+
   const H = { 'User-Agent': UA, Accept: 'text/html,*/*;q=0.8', 'Accept-Language': 'zh-CN,zh;q=0.9' };
   sharedJar.clear();
   sharedJarAt = Date.now();
@@ -150,7 +168,7 @@ async function ensureSharedCookies(): Promise<void> {
     } catch {
       // 继续重试
     }
-    if (attempt < 2) await new Promise((res) => setTimeout(res, 2500 * (attempt + 1)));
+    if (attempt < 2) await new Promise((res) => setTimeout(res, 4000 * (attempt + 1)));
   }
   // 全部失败：短缓存，允许快速重试
   sharedJarAt = Date.now() - (JAR_TTL_MS - JAR_FAIL_TTL_MS);

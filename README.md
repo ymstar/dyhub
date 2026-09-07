@@ -172,6 +172,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \\
 | `DYHUB_CHROME` | Chrome/Chromium 可执行文件路径 | 自动探测      |
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用）     | 无（默认无头）   |
 | `DYHUB_COLLECTOR` | 采集内核：`lightweight`（默认，纯代码）/ `browser`（浏览器+CDP） | `lightweight` |
+| `DYHUB_COOKIE` | 轻量内核直用浏览器 Cookie（`ttwid=…; __ac_nonce=…`），完全绕过 cookie 链请求，**解决数据中心/容器 IP 被风控时的连接失败** | 无（自动获取） |
 
 
 
