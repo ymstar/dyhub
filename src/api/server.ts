@@ -96,6 +96,7 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
       roomId: r.roomId,
       status: r.status,
       msgCount: r.stats.msgCount,
+      meta: r.meta ?? null,
     })),
   }));
 

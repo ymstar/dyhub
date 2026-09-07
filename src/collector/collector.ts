@@ -10,6 +10,8 @@
 
 import { BrowserManager } from './browser.js';
 import { LiveSession } from './liveSession.js';
+import { fetchRoomMeta } from './roomMeta.js';
+import type { RoomMeta } from './roomMeta.js';
 import type { RawProtoMessage } from '../proto/douyin.proto.js';
 
 /** 采集会话的统一形状（LiveSession / LightweightSession 都实现） */
@@ -21,6 +23,8 @@ export interface SessionLike {
   start?(): void;
   stop(): Promise<void>;
   waitForLive(timeoutMs?: number): Promise<boolean>;
+  /** 会话自带的直播间主播信息（轻量内核连接时解析；无则走 fetchRoomMeta 兜底） */
+  meta?: RoomMeta | null;
 }
 
 export interface RoomInfo {
@@ -29,6 +33,8 @@ export interface RoomInfo {
   startedAt: number;
   stats: { wsCount: number; frameCount: number; msgCount: number };
   error?: string;
+  /** 主播信息（异步补全，可能为空） */
+  meta?: RoomMeta | null;
 }
 
 export interface CollectorOptions {
@@ -43,6 +49,7 @@ export interface CollectorOptions {
 export class Collector {
   private sessions = new Map<string, SessionLike>();
   private errors = new Map<string, string>();
+  private metas = new Map<string, RoomMeta | null>();
   private readonly browser?: BrowserManager;
   private readonly createSession?: (roomId: string) => SessionLike;
   private readonly onMessage: CollectorOptions['onMessage'];
@@ -63,11 +70,31 @@ export class Collector {
       : await this.createBrowserSession(roomId);
     this.sessions.set(roomId, session);
     session.start?.();
-    // 等待进入直播态（不阻塞 connect 返回，异步确认）
-    session.waitForLive(30_000).then((ok) => {
-      if (!ok && this.sessions.has(roomId)) {
-        this.errors.set(roomId, 'wss 连接未在超时内建立（直播间可能未开播或已被风控）');
+    // 异步补全主播信息（不阻塞连接，取不到不报错）
+    // 轻量内核的 meta 在 resolveRoomId（异步）完成时才可用；waitForLive 可能因限流超时，
+    // 但房间稍后仍可能连上，故只要最终 live 就继续取 meta，兜底失败后周期重试
+    const ensureMeta = (attempt: number) => {
+      const m = session.meta;
+      if (m) {
+        this.metas.set(roomId, m);
+        return;
       }
+      fetchRoomMeta(roomId).then((meta) => {
+        if (!this.sessions.has(roomId)) return;
+        if (meta) {
+          this.metas.set(roomId, meta);
+        } else if (attempt < 5) {
+          setTimeout(() => ensureMeta(attempt + 1), 30_000);
+        }
+      });
+    };
+    session.waitForLive(30_000).then((ok) => {
+      if (!this.sessions.has(roomId)) return;
+      if (!ok && session.status !== 'live') {
+        this.errors.set(roomId, 'wss 连接未在超时内建立（直播间可能未开播或已被风控）');
+        return;
+      }
+      ensureMeta(0);
     });
     return this.getRoomInfo(roomId)!;
   }
@@ -92,6 +119,7 @@ export class Collector {
       this.sessions.delete(roomId);
     }
     this.errors.delete(roomId);
+    this.metas.delete(roomId);
   }
 
   /** 全部已连接房间 */
@@ -108,6 +136,7 @@ export class Collector {
       startedAt: s.startedAt,
       stats: s.stats(),
       error: this.errors.get(roomId),
+      meta: this.metas.has(roomId) ? this.metas.get(roomId) : undefined,
     };
   }
 

@@ -52,6 +52,14 @@
   .st.live { background: #d9f0e3; color: #2d7a4c; }
   .st.connecting { background: #fdf0d5; color: #a8781a; }
   .st.closed { background: #f3dada; color: #a33; }
+  .room-item .r-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .room-item .r-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #eee; flex: 0 0 auto; }
+  .room-item .r-avatar-fb { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; }
+  .room-item .r-info { min-width: 0; flex: 1; }
+  .room-item .r-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .room-item .r-title { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .room-item .r-foot { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .room-item .r-foot .rid { font-size: 11px; font-weight: 400; color: #6b6b78; font-family: 'SF Mono', Menlo, monospace; }
   .filters { display: flex; flex-wrap: wrap; gap: 6px; }
   .filters label { font-size: 12px; display: flex; align-items: center; gap: 4px; background: #f4f4f2; border-radius: 20px; padding: 4px 10px; cursor: pointer; }
   .filters input { accent-color: var(--accent-dark); }
@@ -402,11 +410,21 @@ curl -X POST http://${base}/api/webhooks \\
       list.innerHTML = '';
       for (const r of s.rooms) {
         const rid = String(r.roomId);
+        const meta = r.meta || {};
+        const nick = meta.nickname || '未知主播';
+        const initial = escapeHtml(nick.charAt(0));
+        const avatar = meta.avatar
+          ? `<img class="r-avatar" src="${escapeHtml(meta.avatar)}" referrerpolicy="no-referrer" alt="" loading="lazy" onerror="this.outerHTML='<span class=&quot;r-avatar r-avatar-fb&quot;>${initial}</span>'" />`
+          : `<span class="r-avatar r-avatar-fb">${initial}</span>`;
         const item = document.createElement('div');
         item.className = 'room-item selectable' + (rid === cur ? ' active' : '');
         item.dataset.room = rid;
         item.onclick = () => { roomSelect.value = rid; switchRoom(rid); };
-        item.innerHTML = `<div><div class="rid">${rid}</div><div style="font-size:11px;color:var(--muted)">${r.msgCount.toLocaleString()} 条消息</div></div><span class="st ${r.status}">${r.status === 'live' ? '直播中' : r.status}</span>`;
+        item.innerHTML = `<div style="min-width:0;flex:1">
+            <div class="r-head">${avatar}<div class="r-info"><div class="r-name">${escapeHtml(nick)}</div>${meta.title ? `<div class="r-title">${escapeHtml(meta.title)}</div>` : ''}</div></div>
+            <div class="r-foot"><span class="rid">${rid}</span> · ${r.msgCount.toLocaleString()} 条消息</div>
+          </div>
+          <span class="st ${r.status}">${r.status === 'live' ? '直播中' : r.status}</span>`;
         list.appendChild(item);
       }
     } catch {}

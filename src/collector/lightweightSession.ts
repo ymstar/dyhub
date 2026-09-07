@@ -17,6 +17,8 @@ import vm from 'vm';
 import protobuf from 'protobufjs';
 import { decodeFrame, decodeAckInfo } from '../proto/douyin.proto.js';
 import type { RawProtoMessage } from '../proto/douyin.proto.js';
+import { parseRoomMeta } from './roomMeta.js';
+import type { RoomMeta } from './roomMeta.js';
 
 // PushFrame 编码器（心跳/ack，字段号与官方 proto 一致）
 const PF = protobuf
@@ -119,6 +121,8 @@ export class LightweightSession {
   private liveResolve: ((ok: boolean) => void) | null = null;
   private liveTimeout: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  /** 主播信息（连接时从直播间 HTML 解析，可能为空） */
+  meta: RoomMeta | null = null;
 
   constructor(roomId: string, private readonly opts: LightweightSessionOptions) {
     this.roomId = roomId;
@@ -203,15 +207,28 @@ export class LightweightSession {
     );
   }
 
-  /** web_rid → 内部 webcast roomId */
+  /** web_rid → 内部 webcast roomId（抖音间歇限流，最多重试 3 次；成功时顺带解析主播信息） */
   private async resolveRoomId(): Promise<string> {
-    const r = await fetch(`https://live.douyin.com/${this.roomId}`, {
-      headers: { 'User-Agent': UA, Cookie: this.cookieStr(), Referer: `https://live.douyin.com/${this.roomId}` },
-    });
-    const html = await r.text();
-    const m = html.match(/roomId\\?"\s*[:=]\s*\\?"(\d+)\\?"/) || html.match(/"roomId"\s*:\s*"?(\d+)"?/);
-    if (!m) throw new Error('room_id 解析失败（直播间不存在或未开播）');
-    return m[1];
+    let lastErr: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await fetch(`https://live.douyin.com/${this.roomId}`, {
+          headers: { 'User-Agent': UA, Cookie: this.cookieStr(), Referer: `https://live.douyin.com/${this.roomId}` },
+          signal: AbortSignal.timeout(12_000),
+        });
+        const html = (await r.text()).replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+        const m = html.match(/roomId\\?"\s*[:=]\s*\\?"(\d+)\\?"/) || html.match(/"roomId"\s*:\s*"?(\d+)"?/);
+        if (m) {
+          this.meta = parseRoomMeta(html);
+          return m[1];
+        }
+        lastErr = new Error('room_id 解析失败（直播间不存在或未开播）');
+      } catch (e) {
+        lastErr = e as Error;
+      }
+      if (attempt < 2) await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)));
+    }
+    throw lastErr ?? new Error('room_id 解析失败');
   }
 
   private buildWssUrl(roomId: string, signature: string): string {
