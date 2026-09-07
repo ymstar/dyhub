@@ -342,6 +342,47 @@ src/
 
 ***
 
+## 🐳 Docker 一键部署
+
+镜像内置 **Chromium + 中文字体**（弹幕昵称 / 内容渲染），无需在宿主机安装任何浏览器。
+
+### 方式一：Docker Compose（推荐）
+
+```bash
+docker compose up -d --build
+
+# 打开控制台
+open http://localhost:8757
+
+# 连接直播间（示例：东方甄选）
+curl -X POST http://localhost:8757/api/rooms/connect \
+  -H 'Content-Type: application/json' \
+  -d '{"roomId":"708764876300"}'
+
+# 查看日志
+docker compose logs -f dyhub
+```
+
+### 方式二：docker run
+
+```bash
+docker build -t dyhub .
+docker run -d --name dyhub -p 8757:8757 --shm-size=2g dyhub
+```
+
+> **为什么需要 `--shm-size=2g`**：Chromium 渲染依赖共享内存 `/dev/shm`，Docker 默认仅 64MB，会导致采集页面崩溃。Compose 已内置该配置。
+
+### 配置说明
+
+| 项 | 说明 |
+| --- | --- |
+| `DYHUB_PORT` / `DYHUB_HOST` | 默认 `8757` / `0.0.0.0`，改端口时同步改端口映射 |
+| `DYHUB_HEADED` | 容器内保持 `0`（无头），不要打开有头 |
+| `DYHUB_CHROME` | 镜像已内置 `/usr/bin/chromium` |
+| 健康检查 | 每 30s 探测 `/api/stats`，`docker ps` 可查状态 |
+
+***
+
 ## 🖥️ 跨平台部署
 
 项目为纯 Node.js 实现，无平台绑定原生模块，**macOS / Linux / Windows 均可运行**，唯一平台相关点是浏览器路径探测（已内置三平台常见路径，也可用 `DYHUB_CHROME` 指定）。

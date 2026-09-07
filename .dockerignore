@@ -1,0 +1,13 @@
+# 依赖与构建产物（Docker 内重新生成）
+node_modules/
+dist/
+
+# 本地研究脚本（含抓包参数）
+spike/
+
+# 版本控制 / 日志 / 系统
+.git/
+.gitignore
+*.log
+.DS_Store
+npm-debug.log*

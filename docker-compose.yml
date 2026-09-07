@@ -1,0 +1,13 @@
+services:
+  dyhub:
+    build: .
+    container_name: dyhub
+    ports:
+      - "8757:8757"
+    environment:
+      DYHUB_PORT: "8757"
+      DYHUB_HOST: "0.0.0.0"
+      DYHUB_HEADED: "0"
+    # Chromium 渲染依赖共享内存；默认 64MB 易导致页面崩溃
+    shm_size: "2gb"
+    restart: unless-stopped

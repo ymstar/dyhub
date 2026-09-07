@@ -94,6 +94,7 @@ export class BrowserManager {
             '--disable-blink-features=AutomationControlled',
             '--autoplay-policy=no-user-gesture-required',
             '--no-sandbox',
+            '--disable-dev-shm-usage',
             '--mute-audio',
           ],
         });
