@@ -88,11 +88,11 @@ flowchart TB
 
 ***
 
-## 🧠 采集原理：为什么用真实浏览器 + CDP
+## 🧠 采集原理：两种采集内核
 
-Spike 阶段实测：抖音对无头 HTTP 客户端（Node fetch + 手工签名 + 简易 Cookie）直接返回 `DEVICE_BLOCKED`（HTTP 415）风控，SDK 直连方案在当前环境已失效。因此本方案：
+**早坑提示**：Spike 阶段早期用「Node fetch + 手工签名 + 简易 Cookie」直连时被 `DEVICE_BLOCKED`（HTTP 415）风控拦截，一度以为纯代码方案已失效；后来补齐完整 cookie 链（`ttwid` + `__ac_nonce` + `__ac_signature`）后实测打通。两种内核的差异如下：
 
-
+**浏览器内核（`DYHUB_COLLECTOR=browser`）**——最稳，适合抖音频繁改协议时保底：
 
 1. 启动系统 Chrome（headless=new）打开直播间页面，页面自行完成签名 / 指纹 / Cookie
 
