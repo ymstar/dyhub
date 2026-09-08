@@ -548,15 +548,18 @@ curl -X POST http://${base}/api/webhooks \\
     btn.disabled = true;
     btn.classList.add('btn-loading');
     btn.innerHTML = '<span class="spinner"></span>连接中…';
+    // 立即弹出进度浮层，与 fetch 并行轮询后端进度（避免等 fetch 返回才弹浮层）
+    const progressPromise = connectWithProgress(rid);
     try {
       const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: rid }) });
       const j = await r.json();
-      if (!r.ok) { alert(j.error || '连接失败'); }
-      else {
-        if (!roomId) $('roomInput').value = '';
-        // 精致连接进度：浮层分步展示 launching → listening → live / error
-        await connectWithProgress(rid);
+      if (!r.ok) {
+        $('connOverlay').classList.remove('show');
+        alert(j.error || '连接失败');
+        return;
       }
+      if (!roomId) $('roomInput').value = '';
+      await progressPromise;
     } finally {
       btn.innerHTML = orig;
       btn.disabled = false;
