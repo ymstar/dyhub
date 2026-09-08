@@ -277,6 +277,18 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
+  // 房间号归一化：兼容全角数字（中文输入法）、直播间 URL 粘贴、空格/零宽等不可见字符
+  function normalizeRoomId(raw) {
+    if (raw === null || raw === undefined) return '';
+    let s = String(raw);
+    // 全角数字 ０-９ → 半角
+    s = s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    // 直接粘贴了直播间链接：取 live.douyin.com/<数字> 尾号
+    const m = s.match(/live\.douyin\.com\/(\d+)/);
+    if (m) return m[1];
+    // 其余情况只保留 ASCII 数字（顺带剔除空格、连字符、零宽字符等）
+    return s.replace(/\D/g, '');
+  }
   let ws = null, events = 0, rateCounter = 0, testWs = null, testEs = null;
   const label = { chat: '弹幕', gift: '礼物', member: '进场', follow: '关注', like: '点赞', room: '统计', unknown: '其他' };
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -529,8 +541,8 @@ curl -X POST http://${base}/api/webhooks \\
   }
 
   async function connect(roomId) {
-    const rid = roomId || $('roomInput').value.trim();
-    if (!rid) return;
+    const rid = normalizeRoomId(roomId || $('roomInput').value);
+    if (!rid) { alert('请输入有效的直播间房间号（纯数字，或直接粘贴直播间链接）'); return; }
     const btn = $('btnConnect');
     const orig = btn.innerHTML;
     btn.disabled = true;
@@ -625,7 +637,13 @@ curl -X POST http://${base}/api/webhooks \\
     });
   }
 
-  $('btnConnect').onclick = connect;
+  // 注意必须包一层无参箭头：直接 onclick=connect 会把 MouseEvent 事件对象当成 roomId 传入
+  $('btnConnect').onclick = () => connect();
+  // 输入/粘贴时即时归一化，用户能直接看到清洗后的纯数字
+  $('roomInput').addEventListener('input', (e) => {
+    const v = normalizeRoomId(e.target.value);
+    if (v !== e.target.value) e.target.value = v;
+  });
   $('roomInput').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
   document.querySelectorAll('#filters input').forEach(i => i.addEventListener('change', () => { if (ws) ws.close(); }));
   setInterval(() => { $('stRate').textContent = (rateCounter * 60 / 30).toFixed(0); rateCounter = 0; refresh(); }, 30000);

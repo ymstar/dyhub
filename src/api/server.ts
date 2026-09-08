@@ -13,6 +13,22 @@ import { EventBus } from '../pipeline/eventBus.js';
 import { WebhookDispatcher } from '../dispatch/webhook.js';
 import { registerSseRoute } from '../dispatch/sseServer.js';
 
+/**
+ * 房间号归一化：兼容全角数字（中文输入法）、直接粘贴的直播间 URL、
+ * 空格 / 零宽字符等噪声；返回纯 ASCII 数字串（无法识别时返回空串）。
+ */
+function normalizeRoomIdInput(raw: unknown): string {
+  if (raw === null || raw === undefined) return '';
+  let s = String(raw);
+  // 全角数字 ０-９ → 半角
+  s = s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  // 粘贴了直播间链接：取 live.douyin.com/<数字> 尾号
+  const fromUrl = s.match(/live\.douyin\.com\/(\d+)/);
+  if (fromUrl) return fromUrl[1];
+  // 其余只保留数字
+  return s.replace(/\D/g, '');
+}
+
 export interface ApiDeps {
   collector: Collector;
   bus: EventBus;
@@ -33,9 +49,10 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   app.get('/api/rooms', async () => ({ rooms: deps.collector.getRooms() }));
 
   app.post('/api/rooms/connect', async (req, reply) => {
-    const { roomId } = (req.body ?? {}) as { roomId?: string };
-    if (!roomId || !/^\d+$/.test(roomId)) {
-      return reply.code(400).send({ error: 'roomId 必须为数字' });
+    const { roomId: rawRoomId } = (req.body ?? {}) as { roomId?: string };
+    const roomId = normalizeRoomIdInput(rawRoomId);
+    if (!roomId) {
+      return reply.code(400).send({ error: 'roomId 必须为纯数字（也可直接粘贴 live.douyin.com 直播间链接）' });
     }
     try {
       const info = await deps.collector.connect(roomId);
@@ -46,19 +63,19 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   });
 
   app.post('/api/rooms/:roomId/disconnect', async (req, reply) => {
-    const { roomId } = req.params as { roomId: string };
+    const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
     await deps.collector.disconnect(roomId);
     return { ok: true };
   });
 
   app.delete('/api/rooms/:roomId', async (req, reply) => {
-    const { roomId } = req.params as { roomId: string };
+    const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
     await deps.collector.removeRoom(roomId);
     return { ok: true };
   });
 
   app.get('/api/rooms/:roomId', async (req, reply) => {
-    const { roomId } = req.params as { roomId: string };
+    const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
     const info = deps.collector.getRoomInfo(roomId);
     if (!info) return reply.code(404).send({ error: '房间未连接' });
     return { room: info };
