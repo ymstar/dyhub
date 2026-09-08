@@ -50,6 +50,8 @@ export class Collector {
   private sessions = new Map<string, SessionLike>();
   private errors = new Map<string, string>();
   private metas = new Map<string, RoomMeta | null>();
+  /** 已停止但保留的房间（不删除，随时可恢复连接） */
+  private saved = new Map<string, { meta: RoomMeta | null; msgCount: number; stoppedAt: number }>();
   private readonly browser?: BrowserManager;
   private readonly createSession?: (roomId: string) => SessionLike;
   private readonly onMessage: CollectorOptions['onMessage'];
@@ -60,10 +62,16 @@ export class Collector {
     this.onMessage = opts.onMessage;
   }
 
-  /** 连接并开始采集一个直播间 */
+  /** 连接并开始采集一个直播间（若房间处于“已停止”保留态，直接恢复） */
   async connect(roomId: string): Promise<RoomInfo> {
     if (this.sessions.has(roomId)) {
       return this.getRoomInfo(roomId)!;
+    }
+    // 恢复保留的房间：沿用其主播信息，停止保留态
+    if (this.saved.has(roomId)) {
+      const s = this.saved.get(roomId)!;
+      this.saved.delete(roomId);
+      this.metas.set(roomId, s.meta);
     }
     const session = this.createSession
       ? this.createSession(roomId)
@@ -111,33 +119,62 @@ export class Collector {
     });
   }
 
-  /** 断开一个直播间采集 */
+  /** 停止一个直播间的采集（保留房间记录与主播信息，随时可恢复连接） */
   async disconnect(roomId: string): Promise<void> {
     const s = this.sessions.get(roomId);
     if (s) {
       await s.stop();
       this.sessions.delete(roomId);
+      this.saved.set(roomId, {
+        meta: this.metas.get(roomId) ?? null,
+        msgCount: s.stats().msgCount,
+        stoppedAt: Date.now(),
+      });
     }
+    this.errors.delete(roomId);
+  }
+
+  /** 彻底删除一个房间（含已停止保留的记录），房间从列表消失 */
+  async removeRoom(roomId: string): Promise<void> {
+    const s = this.sessions.get(roomId);
+    if (s) {
+      await s.stop();
+      this.sessions.delete(roomId);
+    }
+    this.saved.delete(roomId);
     this.errors.delete(roomId);
     this.metas.delete(roomId);
   }
 
-  /** 全部已连接房间 */
+  /** 全部已连接房间 + 已停止保留的房间 */
   getRooms(): RoomInfo[] {
-    return [...this.sessions.keys()].map((id) => this.getRoomInfo(id)!);
+    return [...this.sessions.keys()].map((id) => this.getRoomInfo(id)!)
+      .concat([...this.saved.keys()].map((id) => this.getRoomInfo(id)!));
   }
 
   getRoomInfo(roomId: string): RoomInfo | null {
     const s = this.sessions.get(roomId);
-    if (!s) return null;
-    return {
-      roomId,
-      status: s.status,
-      startedAt: s.startedAt,
-      stats: s.stats(),
-      error: this.errors.get(roomId),
-      meta: this.metas.has(roomId) ? this.metas.get(roomId) : undefined,
-    };
+    if (s) {
+      return {
+        roomId,
+        status: s.status,
+        startedAt: s.startedAt,
+        stats: s.stats(),
+        error: this.errors.get(roomId),
+        meta: this.metas.has(roomId) ? this.metas.get(roomId) : undefined,
+      };
+    }
+    const saved = this.saved.get(roomId);
+    if (saved) {
+      return {
+        roomId,
+        status: 'stopped',
+        startedAt: saved.stoppedAt,
+        stats: { wsCount: 0, frameCount: 0, msgCount: saved.msgCount },
+        meta: saved.meta ?? undefined,
+      };
+    }
+    return null;
   }
 
   async disconnectAll(): Promise<void> {

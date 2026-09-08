@@ -51,6 +51,12 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
     return { ok: true };
   });
 
+  app.delete('/api/rooms/:roomId', async (req, reply) => {
+    const { roomId } = req.params as { roomId: string };
+    await deps.collector.removeRoom(roomId);
+    return { ok: true };
+  });
+
   app.get('/api/rooms/:roomId', async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     const info = deps.collector.getRoomInfo(roomId);

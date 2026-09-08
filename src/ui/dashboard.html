@@ -51,7 +51,11 @@
   .room-item .st { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
   .st.live { background: #d9f0e3; color: #2d7a4c; }
   .st.connecting { background: #fdf0d5; color: #a8781a; animation: pulse 1.6s ease-in-out infinite; }
+  .st.stopped { background: #e8e8ee; color: #6b6b78; }
   .st.closed { background: #f3dada; color: #a33; }
+  .card-btn { padding: 3px 10px; border: none; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: 500; background: var(--accent); color: #123; }
+  .card-btn:hover { filter: brightness(0.94); }
+  .card-btn.danger { background: #f5d0cc; color: #a33; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(18, 51, 64, 0.25); border-top-color: #123; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -424,32 +428,64 @@ curl -X POST http://${base}/api/webhooks \\
         item.className = 'room-item selectable' + (rid === cur ? ' active' : '');
         item.dataset.room = rid;
         item.onclick = () => { roomSelect.value = rid; switchRoom(rid); };
+        const stText = { live: '直播中', connecting: '连接中', stopped: '已停止', error: '连接失败' }[r.status] || r.status;
+        const actBtn = r.status === 'live' || r.status === 'connecting'
+          ? `<button class="card-btn danger" data-act="stop" data-rid="${rid}">停止</button>`
+          : r.status === 'stopped'
+            ? `<button class="card-btn" data-act="start" data-rid="${rid}">连接</button>`
+            : r.status === 'error'
+              ? `<button class="card-btn" data-act="retry" data-rid="${rid}">重连</button>`
+              : '';
         item.innerHTML = `<div style="min-width:0;flex:1">
             <div class="r-head">${avatar}<div class="r-info"><div class="r-name">${escapeHtml(nick)}</div>${meta.title ? `<div class="r-title">${escapeHtml(meta.title)}</div>` : ''}</div></div>
             <div class="r-foot"><span class="rid">${rid}</span> · ${r.msgCount.toLocaleString()} 条消息</div>
           </div>
-          <span class="st ${r.status}">${r.status === 'live' ? '直播中' : r.status}</span>`;
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <span class="st ${r.status}">${stText}</span>
+            <div style="display:flex;gap:4px;">
+              ${actBtn}
+              <button class="card-btn danger" data-act="remove" data-rid="${rid}" title="删除房间">删除</button>
+            </div>
+          </div>`;
         list.appendChild(item);
       }
+      // 卡片操作按钮（不触发房间切换）
+      list.querySelectorAll('.card-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const act = btn.dataset.act;
+          const rid = btn.dataset.rid;
+          if (act === 'stop') {
+            fetch(`/api/rooms/${rid}/disconnect`, { method: 'POST' }).then(() => refresh());
+          } else if (act === 'start') {
+            connect(rid);
+          } else if (act === 'retry') {
+            fetch(`/api/rooms/${rid}/disconnect`, { method: 'POST' }).then(() => connect(rid));
+          } else if (act === 'remove') {
+            if (!confirm(`确定删除房间 ${rid}？删除后需重新输入房号连接。`)) return;
+            fetch(`/api/rooms/${rid}`, { method: 'DELETE' }).then(() => refresh());
+          }
+        });
+      });
     } catch {}
   }
 
-  async function connect() {
-    const roomId = $('roomInput').value.trim();
-    if (!roomId) return;
+  async function connect(roomId) {
+    const rid = roomId || $('roomInput').value.trim();
+    if (!rid) return;
     const btn = $('btnConnect');
     const orig = btn.innerHTML;
     btn.disabled = true;
     btn.classList.add('btn-loading');
     btn.innerHTML = '<span class="spinner"></span>连接中…';
     try {
-      const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId }) });
+      const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: rid }) });
       const j = await r.json();
       if (!r.ok) alert(j.error || '连接失败');
       else {
-        $('roomInput').value = '';
+        if (!roomId) $('roomInput').value = '';
         // 等待房间真正进入 live / error（browser 内核冷启动 Chrome 较慢，最长等 45s）
-        await waitRoomSettled(roomId, 45_000);
+        await waitRoomSettled(rid, 45_000);
       }
     } finally {
       btn.innerHTML = orig;
