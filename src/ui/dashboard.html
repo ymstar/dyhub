@@ -211,7 +211,7 @@
       <h3><span class="badge ws">WebSocket</span>实时推送 · 低延迟</h3>
       <div class="addr" id="wsAddr"></div>
       <div class="params">
-        参数：<b>roomId</b>（选填，订阅指定房间）· <b>types</b>（逗号分隔，chat,gift,member,follow,like,room,unknown）
+        参数：<b>roomId</b>（选填，即连接时输入的直播间号 / live.douyin.com 链接尾号，如 708764876300；留空 = 订阅全部房间混流）· <b>types</b>（逗号分隔，chat,gift,member,follow,like,room,unknown）
         <br/>场景：网页弹幕墙 / 弹幕游戏 / 实时看板
       </div>
       <pre><code id="wsCode"></code></pre>
@@ -293,11 +293,17 @@
   });
 
   // ---- 对接演示：地址与代码 ----
-  const wsAddr = `${wsProto}://${base}/ws?roomId=7681455183867415315&types=chat,gift`;
-  const sseAddr = `http://${base}/api/events?types=chat,gift`;
-  $('wsAddr').innerHTML = `<code>${wsAddr}</code><button class="copy" onclick="navigator.clipboard.writeText('${wsAddr}')">复制</button>`;
-  $('sseAddr').innerHTML = `<code>${sseAddr}</code><button class="copy" onclick="navigator.clipboard.writeText('${sseAddr}')">复制</button>`;
-  $('wsCode').textContent = `// 弹幕墙 / 弹幕游戏
+  // roomId 口径 = 连接直播间时输入的 web_rid 短号（live.douyin.com 链接尾号）；
+  // 地址动态跟随第一个已连接房间，未连接时展示短号示例。
+  let lastDemoRid = null;
+  function renderDemo(demoRid) {
+    if (demoRid === lastDemoRid) return;
+    lastDemoRid = demoRid;
+    const wsAddr = `${wsProto}://${base}/ws?roomId=${demoRid}&types=chat,gift`;
+    const sseAddr = `http://${base}/api/events?roomId=${demoRid}&types=chat,gift`;
+    $('wsAddr').innerHTML = `<code>${wsAddr}</code><button class="copy" onclick="navigator.clipboard.writeText('${wsAddr}')">复制</button>`;
+    $('sseAddr').innerHTML = `<code>${sseAddr}</code><button class="copy" onclick="navigator.clipboard.writeText('${sseAddr}')">复制</button>`;
+    $('wsCode').textContent = `// 弹幕墙 / 弹幕游戏
 const ws = new WebSocket('${wsAddr}');
 ws.onmessage = (m) => {
   const ev = JSON.parse(m.data);
@@ -305,19 +311,21 @@ ws.onmessage = (m) => {
   // ev: { id, roomId, type, ts, user, data }
   console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
 };`;
-  $('sseCode').textContent = `// 浏览器一行接入
+    $('sseCode').textContent = `// 浏览器一行接入
 const es = new EventSource('${sseAddr}');
 es.onmessage = (e) => {
   const ev = JSON.parse(e.data);
   console.log(ev);
 };`;
-  $('whCode').textContent = `# 注册 Webhook
+    $('whCode').textContent = `# 注册 Webhook
 curl -X POST http://${base}/api/webhooks \\
   -H 'Content-Type: application/json' \\
-  -d '{"roomId":"708764876300","url":"https://your-server/hook","secret":"your-secret"}'
+  -d '{"roomId":"${demoRid}","url":"https://your-server/hook","secret":"your-secret"}'
 
 # 事件将 POST 到 url，带签名头：
 # X-DyHub-Signature: sha256=<HMAC-SHA256(secret, body)>`;
+  }
+  renderDemo('708764876300');
 
   // ---- 实时对接测试 ----
   function setTestStatus(txt, on) {
@@ -455,6 +463,8 @@ curl -X POST http://${base}/api/webhooks \\
       $('stRooms').textContent = s.rooms.length;
       // 重建"查看房间"下拉选项，保留当前选中
       const roomIds = s.rooms.map(r => String(r.roomId));
+      // 对接演示地址跟随第一个已连接房间（短号），无房间时回退示例号
+      renderDemo(roomIds[0] || '708764876300');
       const prev = roomSelect.value;
       const cur = roomIds.includes(prev) ? prev : 'all';
       roomSelect.innerHTML = '<option value="all">全部房间（混流）</option>' +
