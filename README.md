@@ -1,7 +1,7 @@
 # DyHub・抖音直播弹幕中台基座
 
 <p align="center">
-  <img src="docs/assets/logo-horizontal.png" alt="DyHub Logo" width="480" />
+  <img src="docs/assets/dyhub-logo.svg" alt="DyHub Logo" width="480" />
 </p>
 
 > 自研采集内核・事件全链路标准化・消费端与抖音私有协议完全解耦
