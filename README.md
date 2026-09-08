@@ -75,6 +75,38 @@ DyHub 是一个抖音直播弹幕采集与分发中台：**双采集内核自研
 
 两种内核产出**完全相同的标准化事件**，管道 / 分发 / 消费端无感知。
 
+### 如何切换采集内核
+
+通过环境变量 `DYHUB_COLLECTOR` 设置，默认 `browser`（浏览器内核）。
+
+```bash
+# 本地 / 服务器：启动前指定环境变量
+DYHUB_COLLECTOR=lightweight npm run dev     # 使用轻量内核
+DYHUB_COLLECTOR=browser npm start           # 使用浏览器内核（默认，可省略）
+
+# Docker Compose：在 docker-compose.yml 的 environment 段添加
+#   environment:
+#     DYHUB_COLLECTOR: "lightweight"
+# 然后 docker compose up -d --build
+
+# Docker run
+docker run -d -p 8757:8757 --shm-size=2g -e DYHUB_COLLECTOR=lightweight dyhub
+```
+
+### 两种内核对比与选型
+
+| | 浏览器内核（`browser`，默认） | 轻量内核（`lightweight`） |
+| --- | --- | --- |
+| **原理** | 真实 Chrome 打开直播间页，CDP 旁观 wss 帧 | 纯代码直连 wss，自行签名 / 心跳 / ack |
+| **稳定性** | 高 —— 页面自动跟随抖音协议变更 | 中 —— 依赖第三方签名脚本，抖音改签名可能失效 |
+| **抗风控** | 强 —— 完整浏览器指纹，被动旁观不发请求 | 弱 —— 纯 HTTP 逆向，数据中心 / 容器 IP 易被风控 |
+| **资源占用** | 高 —— 需运行 Chromium（~200MB 内存 / 房间） | 极低 —— 无浏览器进程（~20MB / 房间） |
+| **连接速度** | 慢 —— Chrome 冷启动 + 页面加载 3~15s | 快 —— 秒级建立 wss |
+| **依赖** | 系统 Chrome / Chromium | 无（签名脚本已内置） |
+| **适用场景** | 生产环境、长期稳定采集、本机 / 桌面部署 | 资源受限（小机器 / 容器）、快速验证、短期采集 |
+
+> **建议**：生产环境用默认 `browser`；仅在机器无 Chrome、资源紧张或需要快速连接时用 `lightweight`。轻量内核被风控时可用 `DYHUB_COOKIE` 注入浏览器复制的 Cookie 绕过，或随时回退 `browser`。
+
 ---
 
 ## 🚀 快速开始
