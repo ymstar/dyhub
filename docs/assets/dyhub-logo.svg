@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="800" height="240">
-  <!-- DyHub 横版组合（简化矢量版）：图形标 + 字标 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 220" width="800" height="220">
+  <!-- DyHub 横版组合：图形标 + 字标（垂直居中对齐） -->
   <defs>
     <linearGradient id="hGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#3EC9E8"/>
@@ -11,22 +11,30 @@
     </linearGradient>
   </defs>
 
-  <g transform="translate(6 30) scale(0.78)">
-    <!-- 连线 -->
-    <path d="M256 240 C 210 200, 200 190, 176 168" stroke="#32E4EE" stroke-width="12" fill="none" stroke-linecap="round"/>
-    <path d="M256 240 C 302 200, 312 190, 336 168" stroke="#32E4EE" stroke-width="12" fill="none" stroke-linecap="round"/>
-    <path d="M256 280 C 256 300, 256 310, 256 330" stroke="#32E4EE" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <!-- 图形标：中心节点 + 连线 + 三个对话气泡 -->
+  <g transform="translate(12 48)">
+    <!-- 连线：节点 → 气泡 -->
+    <path d="M50 58 C 44 46, 40 40, 39 34" stroke="#32E4EE" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M50 58 C 56 46, 60 40, 61 34" stroke="#32E4EE" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M50 64 L50 72" stroke="#32E4EE" stroke-width="6" stroke-linecap="round"/>
+
     <!-- 中心节点 -->
-    <circle cx="256" cy="262" r="34" fill="url(#hGrad)"/>
-    <circle cx="256" cy="262" r="34" fill="none" stroke="rgba(50,228,238,0.55)" stroke-width="6"/>
-    <!-- 三个气泡 -->
-    <path d="M120 116 h90 a26 26 0 0 1 26 26 v40 a26 26 0 0 1 -26 26 h-62 l-30 26 v-26 h-8 a26 26 0 0 1 -26 -26 v-40 a26 26 0 0 1 26 -26 z" fill="url(#bGrad)"/>
-    <path d="M392 116 h-90 a26 26 0 0 0 -26 26 v40 a26 26 0 0 0 26 26 h62 l30 26 v-26 h8 a26 26 0 0 0 26 -26 v-40 a26 26 0 0 0 -26 -26 z" fill="url(#bGrad)"/>
-    <path d="M216 392 h80 a26 26 0 0 0 26 -26 v-36 a26 26 0 0 0 -26 -26 h-80 a26 26 0 0 0 -26 26 v36 a26 26 0 0 0 26 26 z" fill="url(#bGrad)"/>
+    <circle cx="50" cy="60" r="11" fill="url(#hGrad)"/>
+    <circle cx="50" cy="60" r="11" fill="none" stroke="rgba(50,228,238,0.5)" stroke-width="2.5"/>
+
+    <!-- 左上气泡 -->
+    <rect x="10" y="6" width="32" height="25" rx="12" fill="url(#bGrad)"/>
+    <path d="M41 25 L49 34 L40 32 Z" fill="url(#bGrad)"/>
+    <!-- 右上气泡 -->
+    <rect x="58" y="6" width="32" height="25" rx="12" fill="url(#bGrad)"/>
+    <path d="M59 25 L51 34 L60 32 Z" fill="url(#bGrad)"/>
+    <!-- 下方气泡 -->
+    <rect x="34" y="73" width="32" height="25" rx="12" fill="url(#bGrad)"/>
+    <path d="M50 71 L45 63 L55 63 Z" fill="url(#bGrad)"/>
   </g>
 
   <!-- 字标 -->
-  <text x="440" y="148" font-family="'SF Pro Display','PingFang SC','Helvetica Neue',Arial,sans-serif" font-size="80" font-weight="700" fill="#1A1B1C" letter-spacing="2">Dy</text>
-  <text x="556" y="148" font-family="'SF Pro Display','PingFang SC','Helvetica Neue',Arial,sans-serif" font-size="80" font-weight="700" fill="#2B8EC4" letter-spacing="2">Hub</text>
-  <text x="446" y="194" font-family="'PingFang SC','Helvetica Neue',Arial,sans-serif" font-size="26" font-weight="400" fill="#6B7280" letter-spacing="10">弹幕中台</text>
+  <text x="168" y="128" font-family="'SF Pro Display','PingFang SC','Helvetica Neue',Arial,sans-serif" font-size="86" font-weight="700" fill="#1A1B1C" letter-spacing="1">Dy</text>
+  <text x="292" y="128" font-family="'SF Pro Display','PingFang SC','Helvetica Neue',Arial,sans-serif" font-size="86" font-weight="700" fill="#2B8EC4" letter-spacing="1">Hub</text>
+  <text x="170" y="174" font-family="'PingFang SC','Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="400" fill="#6B7280" letter-spacing="6">弹幕中台</text>
 </svg>
