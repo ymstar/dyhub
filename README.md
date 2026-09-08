@@ -58,7 +58,7 @@ flowchart TB
 
 
 
-* **双采集内核**：① 轻量内核（默认）——纯代码直连 wss，连接秒级、零浏览器进程；② 浏览器内核——真实 Chrome headless + CDP 旁观，最稳、抖音改协议自动跟随
+* **双采集内核**：① 浏览器内核（默认）——真实 Chrome headless + CDP 旁观，最稳、抗风控、抖音改协议自动跟随；② 轻量内核——纯代码直连 wss，连接秒级、零浏览器进程，适合资源受限环境
 
 * **统一事件协议**：抖音私有 protobuf → 标准化 `DanmakuEvent`，消费端零感知
 
@@ -96,7 +96,7 @@ flowchart TB
 
 **早坑提示**：Spike 阶段早期用「Node fetch + 手工签名 + 简易 Cookie」直连时被 `DEVICE_BLOCKED`（HTTP 415）风控拦截，一度以为纯代码方案已失效；后来补齐完整 cookie 链（`ttwid` + `__ac_nonce` + `__ac_signature`）后实测打通。两种内核的差异如下：
 
-**浏览器内核（`DYHUB_COLLECTOR=browser`）**——最稳，适合抖音频繁改协议时保底：
+**浏览器内核（`DYHUB_COLLECTOR=browser`，默认）**——最稳、抗风控，适合多数场景：
 
 1. 启动系统 Chrome（headless=new）打开直播间页面，页面自行完成签名 / 指纹 / Cookie
 
@@ -108,7 +108,7 @@ flowchart TB
 
 > 无头模式需一次点击手势触发播放器初始化，弹幕 wss 才会建立（已自动处理）。
 
-**轻量内核（`DYHUB_COLLECTOR=lightweight`，默认）**——纯代码直连，适合资源受限 / 追求连接速度的场景：
+**轻量内核（`DYHUB_COLLECTOR=lightweight`）**——纯代码直连，适合资源受限 / 追求连接速度的场景：
 
 1. HTTP 获取 cookie 三件套（`ttwid` / `__ac_nonce` / `__ac_signature`）
 2. 从直播间页解析内部 `room_id`
@@ -171,7 +171,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \\
 | `DYHUB_HOST`   | 监听地址                    | `0.0.0.0` |
 | `DYHUB_CHROME` | Chrome/Chromium 可执行文件路径 | 自动探测      |
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用）     | 无（默认无头）   |
-| `DYHUB_COLLECTOR` | 采集内核：`lightweight`（默认，纯代码）/ `browser`（浏览器+CDP） | `lightweight` |
+| `DYHUB_COLLECTOR` | 采集内核：`browser`（默认，浏览器+CDP，最稳抗风控）/ `lightweight`（纯代码直连，轻量快速） | `browser` |
 | `DYHUB_COOKIE` | 轻量内核直用浏览器 Cookie（`ttwid=…; __ac_nonce=…`），完全绕过 cookie 链请求，**解决数据中心/容器 IP 被风控时的连接失败** | 无（自动获取） |
 
 

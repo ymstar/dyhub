@@ -28,9 +28,9 @@ async function main() {
   const dedupe = new EventDeduplicator(200_000);
 
   // 2. 采集内核
-  // DYHUB_COLLECTOR=lightweight（默认）：纯代码 wss 直连，连接快、零浏览器进程
-  // DYHUB_COLLECTOR=browser：真实浏览器 + CDP 帧截获，最稳但费资源（需系统 Chrome/Chromium）
-  const kernel = (process.env.DYHUB_COLLECTOR ?? 'lightweight').toLowerCase();
+  // DYHUB_COLLECTOR=browser（默认）：真实浏览器 + CDP 帧截获，最稳、抗风控（需系统 Chrome/Chromium）
+  // DYHUB_COLLECTOR=lightweight：纯代码 wss 直连，连接快、零浏览器进程，但数据中心/容器 IP 易被风控
+  const kernel = (process.env.DYHUB_COLLECTOR ?? 'browser').toLowerCase();
 
   let collector: Collector;
   let browser: BrowserManager | null = null;

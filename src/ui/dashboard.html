@@ -50,8 +50,12 @@
   .room-item .rid { font-size: 13px; font-weight: 500; word-break: break-all; }
   .room-item .st { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
   .st.live { background: #d9f0e3; color: #2d7a4c; }
-  .st.connecting { background: #fdf0d5; color: #a8781a; }
+  .st.connecting { background: #fdf0d5; color: #a8781a; animation: pulse 1.6s ease-in-out infinite; }
   .st.closed { background: #f3dada; color: #a33; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(18, 51, 64, 0.25); border-top-color: #123; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn-loading { cursor: wait !important; }
   .room-item .r-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .room-item .r-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #eee; flex: 0 0 auto; }
   .room-item .r-avatar-fb { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; }
@@ -433,12 +437,42 @@ curl -X POST http://${base}/api/webhooks \\
   async function connect() {
     const roomId = $('roomInput').value.trim();
     if (!roomId) return;
-    $('btnConnect').disabled = true;
+    const btn = $('btnConnect');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('btn-loading');
+    btn.innerHTML = '<span class="spinner"></span>连接中…';
     try {
       const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId }) });
       const j = await r.json();
-      if (!r.ok) alert(j.error || '连接失败'); else $('roomInput').value = '';
-    } finally { $('btnConnect').disabled = false; refresh(); }
+      if (!r.ok) alert(j.error || '连接失败');
+      else {
+        $('roomInput').value = '';
+        // 等待房间真正进入 live / error（browser 内核冷启动 Chrome 较慢，最长等 45s）
+        await waitRoomSettled(roomId, 45_000);
+      }
+    } finally {
+      btn.innerHTML = orig;
+      btn.disabled = false;
+      btn.classList.remove('btn-loading');
+      refresh();
+    }
+  }
+
+  /** 轮询 /api/rooms，直到房间状态变为 live / error 或超时 */
+  function waitRoomSettled(roomId, timeout) {
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const timer = setInterval(async () => {
+        try {
+          const j = await (await fetch('/api/rooms')).json();
+          const list = Array.isArray(j) ? j : (j.rooms || []);
+          const r = list.find((x) => x.roomId === roomId);
+          if (r && (r.status === 'live' || r.status === 'error')) { clearInterval(timer); return resolve(); }
+        } catch { /* 继续轮询 */ }
+        if (Date.now() - t0 > timeout) { clearInterval(timer); resolve(); }
+      }, 2000);
+    });
   }
 
   $('btnConnect').onclick = connect;
