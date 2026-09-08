@@ -86,6 +86,37 @@
   .empty { color: var(--muted); text-align: center; padding: 40px; font-size: 13px; }
   footer { border-top: 1px solid var(--border); background: var(--card); padding: 8px 20px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
 
+  /* 连接进度浮层 */
+  .overlay { position: fixed; inset: 0; background: rgba(244, 243, 238, 0.72); backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; z-index: 999; }
+  .overlay.show { display: flex; animation: ovIn 0.22s ease; }
+  @keyframes ovIn { from { opacity: 0; } to { opacity: 1; } }
+  .ov-card { width: 340px; max-width: 90vw; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 26px 24px 22px; box-shadow: 0 12px 40px rgba(0,0,0,0.10); text-align: center; position: relative; overflow: hidden; }
+  .ov-progress { position: absolute; top: 0; left: 0; height: 3px; width: 100%; background: rgba(74,144,184,0.15); }
+  .ov-progress .bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-dark), #6fc3e8); border-radius: 0 3px 3px 0; transition: width 0.5s ease; }
+  .ov-progress .bar.indet { width: 40% !important; animation: indet 1.2s ease-in-out infinite; }
+  @keyframes indet { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+  .ov-ico { width: 52px; height: 52px; border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; background: #eef6fb; }
+  .ov-ico .spinner-lg { width: 30px; height: 30px; border: 3px solid rgba(74,144,184,0.22); border-top-color: var(--accent-dark); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .ov-ico .big-check { font-size: 26px; font-weight: 700; color: #52C41A; animation: pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .ov-ico .big-x { font-size: 26px; font-weight: 700; color: #EA6668; animation: pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes pop { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .ov-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .ov-rid { font-size: 12px; color: var(--muted); font-family: 'SF Mono', Menlo, monospace; margin: 4px 0 16px; }
+  .ov-steps { display: flex; flex-direction: column; gap: 0; text-align: left; margin-top: 4px; }
+  .ov-step { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 13px; color: var(--muted); position: relative; }
+  .ov-step::before { content: ''; position: absolute; left: 9px; top: -14px; width: 2px; height: 30px; background: var(--border); }
+  .ov-step:first-child::before { display: none; }
+  .ov-step .dot { width: 20px; height: 20px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 11px; background: #f0f0ee; color: transparent; border: 1px solid var(--border); z-index: 1; }
+  .ov-step .dot .mini-spin { width: 10px; height: 10px; border: 2px solid rgba(74,144,184,0.25); border-top-color: var(--accent-dark); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .ov-step.active { color: var(--text); font-weight: 500; }
+  .ov-step.active .dot { border-color: var(--accent-dark); background: #eef6fb; }
+  .ov-step.done { color: var(--muted); }
+  .ov-step.done .dot { background: #d9f0e3; border-color: #2d7a4c; color: #2d7a4c; }
+  .ov-step.fail .dot { background: #f3dada; border-color: #a33; color: #a33; }
+  .ov-step.fail { color: #a33; }
+  .ov-err { margin-top: 14px; font-size: 12px; color: #a33; background: #fdf0f0; border: 1px solid #f3dada; border-radius: 8px; padding: 8px 10px; word-break: break-all; text-align: left; line-height: 1.5; }
+  .ov-note { margin-top: 10px; font-size: 11px; color: var(--muted); }
+
   /* 对接演示视图 */
   .view-docs { overflow-y: auto; padding: 20px; flex-direction: column; gap: 16px; }
   .doc-cards { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -226,6 +257,23 @@
   <span>DyHub v0.1 · 采集内核：真实浏览器 + CDP 帧截获</span>
   <span>消费端接入：WS <code>/ws</code> · SSE <code>/api/events</code> · Webhook <code>/api/webhooks</code></span>
 </footer>
+
+<!-- 连接进度浮层 -->
+<div class="overlay" id="connOverlay">
+  <div class="ov-card">
+    <div class="ov-progress"><div class="bar indet" id="ovBar"></div></div>
+    <div class="ov-ico" id="ovIco"><div class="spinner-lg"></div></div>
+    <div class="ov-title" id="ovTitle">正在连接直播间</div>
+    <div class="ov-rid" id="ovRid">—</div>
+    <div class="ov-steps">
+      <div class="ov-step active" id="ovStep0"><span class="dot"><span class="mini-spin"></span></span>启动浏览器 · 打开直播间页面</div>
+      <div class="ov-step" id="ovStep1"><span class="dot"></span>订阅监听弹幕通道</div>
+      <div class="ov-step" id="ovStep2"><span class="dot"></span>连接成功，开始采集</div>
+    </div>
+    <div class="ov-err" id="ovErr" style="display:none;"></div>
+    <div class="ov-note" id="ovNote">浏览器内核冷启动约需 3~15 秒</div>
+  </div>
+</div>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -481,11 +529,11 @@ curl -X POST http://${base}/api/webhooks \\
     try {
       const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: rid }) });
       const j = await r.json();
-      if (!r.ok) alert(j.error || '连接失败');
+      if (!r.ok) { alert(j.error || '连接失败'); }
       else {
         if (!roomId) $('roomInput').value = '';
-        // 等待房间真正进入 live / error（browser 内核冷启动 Chrome 较慢，最长等 45s）
-        await waitRoomSettled(rid, 45_000);
+        // 精致连接进度：浮层分步展示 launching → listening → live / error
+        await connectWithProgress(rid);
       }
     } finally {
       btn.innerHTML = orig;
@@ -495,19 +543,75 @@ curl -X POST http://${base}/api/webhooks \\
     }
   }
 
-  /** 轮询 /api/rooms，直到房间状态变为 live / error 或超时 */
-  function waitRoomSettled(roomId, timeout) {
+  /** 连接进度浮层：分步动画 + 轮询后端 progress 状态 */
+  function connectWithProgress(rid) {
     return new Promise((resolve) => {
+      const ov = $('connOverlay'), ovIco = $('ovIco'), ovBar = $('ovBar'), ovErr = $('ovErr');
+      const steps = [$('ovStep0'), $('ovStep1'), $('ovStep2')];
+      const setStep = (i, cls) => {
+        steps.forEach((s, j) => {
+          s.classList.remove('active', 'done', 'fail');
+          const dot = s.querySelector('.dot');
+          if (j === i) dot.innerHTML = cls === 'done' ? '✓' : cls === 'fail' ? '✕' : '<span class="mini-spin"></span>';
+          else if (j < i) { dot.textContent = '✓'; s.classList.add('done'); }
+          if (j === i) s.classList.add(cls === 'done' || cls === 'fail' ? (cls === 'done' ? 'done' : 'fail') : 'active');
+        });
+      };
+      $('ovRid').textContent = rid;
+      $('ovTitle').textContent = '正在连接直播间';
+      ovErr.style.display = 'none';
+      ovBar.className = 'bar indet';
+      setStep(0, 'active');
+      ov.classList.add('show');
+
       const t0 = Date.now();
       const timer = setInterval(async () => {
+        let status = null, progress = null, error = null;
         try {
           const j = await (await fetch('/api/rooms')).json();
           const list = Array.isArray(j) ? j : (j.rooms || []);
-          const r = list.find((x) => x.roomId === roomId);
-          if (r && (r.status === 'live' || r.status === 'error')) { clearInterval(timer); return resolve(); }
+          const r = list.find((x) => x.roomId === rid);
+          if (r) { status = r.status; progress = r.progress; error = r.error || null; }
         } catch { /* 继续轮询 */ }
-        if (Date.now() - t0 > timeout) { clearInterval(timer); resolve(); }
-      }, 2000);
+
+        const step = progress && progress.step;
+        if (step === 'launching') setStep(0, 'active');
+        else if (step === 'listening') setStep(1, 'active');
+        else if (step === 'live' || status === 'live') {
+          setStep(2, 'done');
+          ovBar.className = 'bar';
+          ovBar.style.width = '100%';
+          ovIco.innerHTML = '<span class="big-check">✓</span>';
+          $('ovTitle').textContent = '连接成功';
+          $('ovNote').textContent = '弹幕采集已开始';
+          clearInterval(timer);
+          setTimeout(() => { ov.classList.remove('show'); resolve(); }, 1200);
+          return;
+        } else if (step === 'error' || status === 'error') {
+          setStep(1, 'fail');
+          ovBar.className = 'bar';
+          ovBar.style.width = '100%';
+          ovIco.innerHTML = '<span class="big-x">✕</span>';
+          $('ovTitle').textContent = '连接失败';
+          $('ovNote').textContent = '';
+          ovErr.textContent = error || (progress && progress.detail) || '连接失败，请稍后重试';
+          ovErr.style.display = 'block';
+          clearInterval(timer);
+          setTimeout(() => { ov.classList.remove('show'); resolve(); }, 3500);
+          return;
+        }
+
+        // 超时兜底（45s）
+        if (Date.now() - t0 > 45_000) {
+          setStep(1, 'fail');
+          ovIco.innerHTML = '<span class="big-x">✕</span>';
+          $('ovTitle').textContent = '连接超时';
+          ovErr.textContent = '连接超时（45s），直播间可能未开播或网络异常';
+          ovErr.style.display = 'block';
+          clearInterval(timer);
+          setTimeout(() => { ov.classList.remove('show'); resolve(); }, 3000);
+        }
+      }, 1500);
     });
   }
 

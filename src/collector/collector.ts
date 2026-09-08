@@ -35,7 +35,12 @@ export interface RoomInfo {
   error?: string;
   /** 主播信息（异步补全，可能为空） */
   meta?: RoomMeta | null;
+  /** 连接过程进度（launching → listening → live / error） */
+  progress?: { step: string; detail?: string; ts: number };
 }
+
+/** 连接进度步骤 */
+export type ConnectStep = 'launching' | 'listening' | 'live' | 'error';
 
 export interface CollectorOptions {
   /** 浏览器内核：BrowserManager（DYHUB_COLLECTOR=browser 时必填） */
@@ -52,6 +57,8 @@ export class Collector {
   private metas = new Map<string, RoomMeta | null>();
   /** 已停止但保留的房间（不删除，随时可恢复连接） */
   private saved = new Map<string, { meta: RoomMeta | null; msgCount: number; stoppedAt: number }>();
+  /** 连接过程进度 */
+  private progress = new Map<string, { step: ConnectStep; detail?: string; ts: number }>();
   private readonly browser?: BrowserManager;
   private readonly createSession?: (roomId: string) => SessionLike;
   private readonly onMessage: CollectorOptions['onMessage'];
@@ -73,11 +80,16 @@ export class Collector {
       this.saved.delete(roomId);
       this.metas.set(roomId, s.meta);
     }
+    const setProgress = (step: ConnectStep, detail?: string) =>
+      this.progress.set(roomId, { step, detail, ts: Date.now() });
+
+    setProgress('launching');
     const session = this.createSession
       ? this.createSession(roomId)
       : await this.createBrowserSession(roomId);
     this.sessions.set(roomId, session);
     session.start?.();
+    setProgress('listening');
     // 异步补全主播信息（不阻塞连接，取不到不报错）
     // 轻量内核的 meta 在 resolveRoomId（异步）完成时才可用；waitForLive 可能因限流超时，
     // 但房间稍后仍可能连上，故只要最终 live 就继续取 meta，兜底失败后周期重试
@@ -99,24 +111,30 @@ export class Collector {
     session.waitForLive(30_000).then((ok) => {
       if (!this.sessions.has(roomId)) return;
       if (!ok && session.status !== 'live') {
-        this.errors.set(roomId, 'wss 连接未在超时内建立（直播间可能未开播或已被风控）');
+        const msg = 'wss 连接未在超时内建立（直播间可能未开播或已被风控）';
+        this.errors.set(roomId, msg);
+        setProgress('error', msg);
         return;
       }
+      setProgress('live');
       ensureMeta(0);
     });
     return this.getRoomInfo(roomId)!;
   }
 
+  /** 浏览器内核：打开直播间页面（含 Chrome 冷启动），成功后进入订阅监听阶段 */
   private async createBrowserSession(roomId: string): Promise<SessionLike> {
     if (!this.browser) throw new Error('未配置浏览器内核（DYHUB_COLLECTOR=browser 时需要 DYHUB_CHROME）');
     const url = `https://live.douyin.com/${roomId}`;
     const { page, cdp } = await this.browser.openRoom(url);
-    return new LiveSession(roomId, page, cdp, {
+    const session = new LiveSession(roomId, page, cdp, {
       onMessage: (msg, meta) => this.onMessage(msg, meta),
       onError: (err) => {
         this.errors.set(roomId, err.message);
       },
     });
+    this.progress.set(roomId, { step: 'launching', detail: '页面已打开，等待弹幕通道', ts: Date.now() });
+    return session;
   }
 
   /** 停止一个直播间的采集（保留房间记录与主播信息，随时可恢复连接） */
@@ -132,6 +150,7 @@ export class Collector {
       });
     }
     this.errors.delete(roomId);
+    this.progress.delete(roomId);
   }
 
   /** 彻底删除一个房间（含已停止保留的记录），房间从列表消失 */
@@ -144,6 +163,7 @@ export class Collector {
     this.saved.delete(roomId);
     this.errors.delete(roomId);
     this.metas.delete(roomId);
+    this.progress.delete(roomId);
   }
 
   /** 全部已连接房间 + 已停止保留的房间 */
@@ -162,6 +182,7 @@ export class Collector {
         stats: s.stats(),
         error: this.errors.get(roomId),
         meta: this.metas.has(roomId) ? this.metas.get(roomId) : undefined,
+        progress: this.progress.get(roomId),
       };
     }
     const saved = this.saved.get(roomId);
