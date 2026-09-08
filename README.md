@@ -21,25 +21,6 @@
 
 DyHub 是一个抖音直播弹幕采集与分发中台：**双采集内核自研**（轻量纯代码直连 + 浏览器 CDP 旁观），产出**统一事件协议**（`DanmakuEvent`），并通过 **WebSocket / SSE / Webhook** 三种通道分发。上游改协议不碰消费端，下游接弹幕墙、弹幕游戏、AI 助理、数据看板只认一种事件。
 
-## 目录
-
-- [架构总览](#架构总览)
-- [特性](#-特性)
-- [界面预览](#️-界面预览)
-- [采集原理：两种采集内核](#-采集原理两种采集内核)
-- [快速开始](#-快速开始)
-- [事件协议](#-事件协议)
-- [消费端接入](#-消费端接入)
-- [API 参考](#-api-参考)
-- [项目结构](#️-项目结构)
-- [Docker 一键部署](#-docker-一键部署)
-- [跨平台部署](#️-跨平台部署)
-- [扩展点 / Roadmap](#-扩展点--roadmap)
-- [常见问题](#-常见问题)
-- [合规声明](#️-合规声明)
-- [License](#-license)
-- [致谢](#-致谢)
-
 ## 架构总览
 
 ![DyHub 架构总览](docs/assets/architecture.png)
@@ -101,7 +82,7 @@ DyHub 是一个抖音直播弹幕采集与分发中台：**双采集内核自研
 ### 前置要求
 
 - **Node.js ≥ 20**
-- **Chrome / Chromium**（macOS、Windows 直接装 Chrome；Linux 见[跨平台部署](#-跨平台部署)）
+- **Chrome / Chromium**（macOS、Windows 直接装 Chrome；Linux 安装 Chromium 后用 `DYHUB_CHROME` 指定路径）
 
 ### 安装与运行
 
@@ -297,22 +278,6 @@ docker run -d --name dyhub -p 8757:8757 --shm-size=2g dyhub
 | `DYHUB_CHROME` | 镜像已内置 `/usr/bin/chromium` |
 | `DYHUB_COOKIE` | 容器 IP 被风控时，填入浏览器复制的 Cookie（含 `ttwid` + `__ac_nonce`） |
 | 健康检查 | 每 30s 探测 `/api/stats`，`docker ps` 可查状态 |
-
----
-
-## 🖥️ 跨平台部署
-
-项目为纯 Node.js 实现，无平台绑定原生模块，**macOS / Linux / Windows 均可运行**，唯一平台相关点是浏览器路径探测（已内置三平台常见路径，也可用 `DYHUB_CHROME` 指定）。
-
-### Linux（Ubuntu/Debian 示例）
-
-```bash
-sudo apt install -y chromium-browser
-npm install && npm run build
-DYHUB_CHROME=/usr/bin/chromium nohup node dist/index.js > dyhub.log 2>&1 &
-```
-
-建议用 systemd 常驻：`Restart=always` + `WorkingDirectory` 指向项目目录。
 
 ---
 
