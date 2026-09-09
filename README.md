@@ -146,7 +146,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `DYHUB_CHROME` | Chrome/Chromium 可执行文件路径 | 自动探测 |
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用） | 无（默认无头） |
 | `DYHUB_COLLECTOR` | 采集内核：`browser`（默认，浏览器 + CDP，最稳抗风控）/ `lightweight`（纯代码直连，轻量快速） | `browser` |
-| `DYHUB_COOKIE` | 轻量内核直用浏览器 Cookie（`ttwid=…; __ac_nonce=…`），完全绕过 cookie 链请求，**解决数据中心 / 容器 IP 被风控时的连接失败** | 无（自动获取） |
+| `DYHUB_COOKIE` | 浏览器复制的 Cookie（含 `sessionid_ss` 登录态），用于**获取礼物事件**与**绕过容器 IP 风控**；也可启动后在控制台填写 → 详见 [Cookie 配置指南](docs/cookie-guide.md) | 无（游客态） |
 
 ---
 
@@ -179,7 +179,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | type | 含义 | data 关键字段 |
 | --- | --- | --- |
 | `chat` | 弹幕 | `content` |
-| `gift` | 礼物 | `giftName` / `diamondCount` / `repeatCount` / `comboCount` |
+| `gift` | 礼物 | `giftName` / `diamondCount` / `repeatCount` / `comboCount`（需登录态 Cookie，见 [Cookie 指南](docs/cookie-guide.md)） |
 | `member` | 进场 | `memberCount` |
 | `like` | 点赞 | `count` / `total` |
 | `follow` | 关注 | `action` |
@@ -239,6 +239,7 @@ curl -X POST http://localhost:8757/api/webhooks \
 | DELETE | `/api/rooms/:roomId` | 彻底删除房间 |
 | GET | `/api/rooms/:roomId` | 单房间详情 |
 | GET | `/api/stats` | 全局统计（WS 客户端数 / 房间 / 事件量） |
+| GET/POST/DELETE | `/api/cookie` | 登录 Cookie 管理（查看状态 / 设置 / 清除），详见 [Cookie 配置指南](docs/cookie-guide.md) |
 | GET | `/api/events?types=chat,gift&roomId=xxx` | SSE 实时事件流 |
 | GET/POST/DELETE | `/api/webhooks` | Webhook 订阅管理 |
 
@@ -252,8 +253,9 @@ src/
 ├── types/events.ts          # 标准化事件协议（消费端唯一依赖）
 ├── proto/douyin.proto.ts    # protobuf 解码器（帧/消息体）
 ├── collector/
-│   ├── browser.ts           # 浏览器内核：Chrome 探测 / 页面 / CDP
+│   ├── browser.ts           # 浏览器内核：Chrome 探测 / 页面 / CDP / Cookie 注入
 │   ├── lightweightSession.ts # 轻量内核：纯代码 wss 直连（cookie 链 / 签名 / 心跳 / ack）
+│   ├── cookieStore.ts       # 运行时 Cookie 存储（登录态注入，两种内核共用）
 │   ├── liveSession.ts       # 单直播间会话（帧监听 / 状态机）
 │   ├── roomMeta.ts          # 主播信息解析（昵称 / 头像 / 简介）
 │   └── collector.ts         # 采集器门面（多房间管理）
@@ -308,7 +310,7 @@ docker run -d --name dyhub -p 8757:8757 --shm-size=2g dyhub
 | `DYHUB_PORT` / `DYHUB_HOST` | 默认 `8757` / `0.0.0.0`，改端口时同步改端口映射 |
 | `DYHUB_HEADED` | 容器内保持 `0`（无头），不要打开有头 |
 | `DYHUB_CHROME` | 镜像已内置 `/usr/bin/chromium` |
-| `DYHUB_COOKIE` | 容器 IP 被风控时，填入浏览器复制的 Cookie（含 `ttwid` + `__ac_nonce`） |
+| `DYHUB_COOKIE` | 容器 IP 被风控或需获取礼物事件时，填入浏览器复制的登录 Cookie → 详见 [Cookie 配置指南](cookie-guide.md) |
 | 健康检查 | 每 30s 探测 `/api/stats`，`docker ps` 可查状态 |
 
 ---
@@ -343,6 +345,10 @@ npm install -f @typescript/typescript-darwin-x64   # 或 -arm64，按实际报�
 **Q：会被抖音风控吗？**
 
 方案为「真实浏览器被动旁观」，不发送业务请求，风险显著低于纯 HTTP 逆向。但仍请遵守平台规则、控制采集规模，仅采集自有或已授权直播间。
+
+**Q：礼物事件获取不到？**
+
+抖音 webcast 服务端只向已登录的连接推送礼物事件，游客态只收到弹幕 / 进场 / 点赞等。需在控制台填入含 `sessionid_ss` 的登录 Cookie → 详见 [Cookie 配置指南](docs/cookie-guide.md)。
 
 ---
 

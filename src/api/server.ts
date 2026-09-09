@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import { Collector } from '../collector/collector.js';
+import * as cookieStore from '../collector/cookieStore.js';
 import { EventBus } from '../pipeline/eventBus.js';
 import { WebhookDispatcher } from '../dispatch/webhook.js';
 import { registerSseRoute } from '../dispatch/sseServer.js';
@@ -44,6 +45,21 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   const uiDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
   app.register(fastifyStatic, { root: uiDir, prefix: '/', index: ['dashboard.html'] });
   app.get('/', (_req, reply) => reply.sendFile('dashboard.html'));
+
+  // ---- Cookie 管理（运行时注入登录态，使礼物事件可获取）----
+  app.get('/api/cookie', async () => cookieStore.getStatus());
+
+  app.post('/api/cookie', async (req, reply) => {
+    const { cookie } = (req.body ?? {}) as { cookie?: string };
+    if (!cookie || !cookie.trim()) return reply.code(400).send({ error: 'cookie 不能为空' });
+    cookieStore.setCookie(cookie);
+    return { ok: true, ...cookieStore.getStatus() };
+  });
+
+  app.delete('/api/cookie', async () => {
+    cookieStore.clear();
+    return { ok: true, ...cookieStore.getStatus() };
+  });
 
   // ---- 房间管理 ----
   app.get('/api/rooms', async () => ({ rooms: deps.collector.getRooms() }));

@@ -11,6 +11,7 @@
 
 import { chromium, type Browser, type BrowserContext, type Page, type CDPSession } from 'playwright-core';
 import { existsSync } from 'node:fs';
+import * as cookieStore from './cookieStore.js';
 
 const DEFAULT_CHROME_PATHS = [
   // macOS
@@ -126,6 +127,25 @@ export class BrowserManager {
     const page = await ctx.newPage();
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Network.enable');
+
+    // 注入用户设置的 cookie（含登录态），使页面以登录身份加载，webcast wss 随之携带登录 cookie
+    const cookieStr = cookieStore.getCookieStr();
+    if (cookieStr) {
+      const cookies = cookieStr
+        .split(';')
+        .map((part) => {
+          const i = part.indexOf('=');
+          if (i <= 0) return null;
+          return {
+            name: part.slice(0, i).trim(),
+            value: part.slice(i + 1).trim(),
+            domain: '.douyin.com',
+            path: '/',
+          };
+        })
+        .filter((c): c is { name: string; value: string; domain: string; path: string } => c !== null);
+      if (cookies.length) await ctx.addCookies(cookies);
+    }
 
     await page.goto(roomUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     // 等待页面标题就绪（页面加载完成信号）

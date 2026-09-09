@@ -19,6 +19,7 @@ import { decodeFrame, decodeAckInfo } from '../proto/douyin.proto.js';
 import type { RawProtoMessage } from '../proto/douyin.proto.js';
 import { parseRoomMeta } from './roomMeta.js';
 import type { RoomMeta } from './roomMeta.js';
+import * as cookieStore from './cookieStore.js';
 
 // PushFrame 编码器（心跳/ack，字段号与官方 proto 一致）
 const PF = protobuf
@@ -131,21 +132,24 @@ function sharedCookieStr(): string {
 async function ensureSharedCookies(): Promise<void> {
   if (sharedJarAt && Date.now() - sharedJarAt < JAR_TTL_MS) return;
 
-  // 用户显式提供 cookie（浏览器 F12 复制），完全绕过 cookie 链请求——规避数据中心/容器 IP 风控
-  const envCookie = process.env.DYHUB_COOKIE;
-  if (envCookie && !sharedJar.size) {
+  // 用户通过 Dashboard 或 DYHUB_COOKIE 提供的 cookie（含登录态），绕过 cookie 链请求
+  const userCookie = cookieStore.getCookieStr();
+  if (userCookie && !sharedJar.size) {
     sharedJar.clear();
-    for (const part of envCookie.split(';')) {
+    for (const part of userCookie.split(';')) {
       const i = part.indexOf('=');
       if (i > 0) sharedJar.set(part.slice(0, i).trim(), part.slice(i + 1).trim());
     }
+    // 有 ttwid 即可直接连接 wss；__ac_nonce 存在时补算 __ac_signature
     const nonce = sharedJar.get('__ac_nonce') || '';
-    if (sharedJar.get('ttwid') && nonce) {
-      sharedJar.set('__ac_signature', acSignature('www.douyin.com', nonce, UA, Math.floor(Date.now() / 1000)));
+    if (sharedJar.get('ttwid')) {
+      if (nonce) {
+        sharedJar.set('__ac_signature', acSignature('www.douyin.com', nonce, UA, Math.floor(Date.now() / 1000)));
+      }
       sharedJarAt = Date.now();
       return;
     }
-    sharedJar.clear(); // 缺少必需项，回退 HTTP cookie 链
+    sharedJar.clear(); // 缺 ttwid，回退 HTTP cookie 链
   }
 
   const H = { 'User-Agent': UA, Accept: 'text/html,*/*;q=0.8', 'Accept-Language': 'zh-CN,zh;q=0.9' };
@@ -325,11 +329,11 @@ export class LightweightSession {
     const signature = getSign(createHash('md5').update(sigParams).digest('hex'));
 
     const url = this.buildWssUrl(roomId, signature);
-    const ttwid = sharedJar.get('ttwid') || '';
 
     await new Promise<void>((resolve, reject) => {
+      // 发送完整 cookie（含登录态），使 webcast 服务端推送礼物事件
       const ws = new WebSocket(url, {
-        headers: { 'User-Agent': UA, Cookie: `ttwid=${ttwid}` },
+        headers: { 'User-Agent': UA, Cookie: sharedCookieStr() },
         handshakeTimeout: 15_000,
       });
       this.ws = ws;

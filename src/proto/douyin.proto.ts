@@ -54,8 +54,8 @@ message ChatMessage {
 message GiftMessage {
   Common common = 1;
   int64 gift_id = 2;
-  string repeat_count = 5;
-  string combo_count = 6;
+  int64 repeat_count = 5;
+  int64 combo_count = 6;
   User user = 7;
   int32 repeat_end = 9;
   GiftStruct gift = 15;
