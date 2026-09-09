@@ -54,6 +54,7 @@ export interface GiftEvent extends BaseDanmakuEvent {
   data: {
     giftId: string;
     giftName: string;
+    giftIcon?: string;       // 礼物图标 URL
     diamondCount?: number;   // 价值（钻石）
     repeatCount?: number;    // 连击次数
     comboCount?: number;     // 连击（主播端口径）

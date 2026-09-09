@@ -375,7 +375,10 @@ curl -X POST http://${base}/api/webhooks \\
     if (ev.type === 'follow') what = '关注了主播';
     if (ev.type === 'room') what = `在线 ${(ev.data.total || 0).toLocaleString()} 人`;
     const av = testAvatarHTML(ev.user);
-    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${escapeHtml(String(what))}</span>`;
+    const giftIcon = (ev.type === 'gift' && ev.data?.giftIcon)
+      ? `<img src="${escapeHtml(ev.data.giftIcon)}" referrerpolicy="no-referrer" style="width:18px;height:18px;vertical-align:middle;border-radius:3px;object-fit:cover;flex:0 0 auto;" onerror="this.style.display='none'" /> `
+      : '';
+    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}${giftIcon}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${escapeHtml(String(what))}</span>`;
     feed.appendChild(line);
     while (feed.children.length > 300) feed.removeChild(feed.firstChild);
     feed.scrollTop = feed.scrollHeight;
@@ -457,7 +460,14 @@ curl -X POST http://${base}/api/webhooks \\
     if (ev.user) who = ev.user.nickname || ev.user.id;
     switch (ev.type) {
       case 'chat': what = ev.data.content; break;
-      case 'gift': what = `送出 <b>${ev.data.giftName}</b> ×${ev.data.comboCount || ev.data.repeatCount || 1}${ev.data.diamondCount ? `（${ev.data.diamondCount}钻）` : ''}`; break;
+      case 'gift': {
+        const cnt = ev.data.comboCount || ev.data.repeatCount || 1;
+        const icon = ev.data.giftIcon
+          ? `<img src="${escapeHtml(ev.data.giftIcon)}" referrerpolicy="no-referrer" style="width:24px;height:24px;vertical-align:middle;border-radius:4px;object-fit:cover;" onerror="this.style.display='none'" /> `
+          : '🎁 ';
+        what = `${icon}送出 <b>${ev.data.giftName}</b> ×${cnt}${ev.data.diamondCount ? `（${ev.data.diamondCount}钻）` : ''}`;
+        break;
+      }
       case 'member': what = '进入直播间'; break;
       case 'follow': what = '关注了主播'; break;
       case 'like': what = `点赞 ${ev.data.count || 1}`; break;

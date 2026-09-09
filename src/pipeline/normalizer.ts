@@ -97,13 +97,19 @@ export function normalize(msg: RawProtoMessage, meta: { roomId: string }): Danma
       return ev;
     }
     case 'WebcastGiftMessage': {
+      const gift = body.gift;
+      const iconUrls = gift?.icon?.urlList;
       const ev: GiftEvent = {
         ...base,
         type: 'gift',
         data: {
-          giftId: longToStr(body.gift_id ?? body.gift?.id),
-          giftName: body.gift?.name || '',
-          diamondCount: Number(body.gift?.diamond_count ?? 0),
+          giftId: longToStr(body.gift_id ?? gift?.id),
+          giftName: gift?.name || '',
+          giftIcon:
+            Array.isArray(iconUrls) && iconUrls.length && typeof iconUrls[0] === 'string' && iconUrls[0].startsWith('http')
+              ? iconUrls[0]
+              : undefined,
+          diamondCount: Number(gift?.diamond_count ?? 0),
           repeatCount: Number(body.repeat_count ?? 0),
           comboCount: Number(body.combo_count ?? 0),
           repeatEnd: Boolean(body.repeat_end),
