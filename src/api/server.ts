@@ -50,9 +50,9 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   app.get('/api/cookie', async () => cookieStore.getStatus());
 
   app.post('/api/cookie', async (req, reply) => {
-    const { cookie } = (req.body ?? {}) as { cookie?: string };
+    const { cookie, persist } = (req.body ?? {}) as { cookie?: string; persist?: boolean };
     if (!cookie || !cookie.trim()) return reply.code(400).send({ error: 'cookie 不能为空' });
-    cookieStore.setCookie(cookie);
+    cookieStore.setCookie(cookie, { persist: persist ?? false });
     return { ok: true, ...cookieStore.getStatus() };
   });
 

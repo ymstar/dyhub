@@ -177,10 +177,14 @@
       <div>
         <div class="panel-title">登录 Cookie <span id="cookieStatus" style="font-weight:400;font-size:11px;color:var(--muted);">未设置</span></div>
         <textarea id="cookieInput" placeholder="浏览器 F12 → Network → 请求头 → Cookie，粘贴整行" style="width:100%;height:56px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:11px;resize:vertical;outline:none;font-family:'SF Mono',Menlo,monospace;line-height:1.4;"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;">
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
           <button id="btnSaveCookie">保存</button>
           <button id="btnClearCookie" class="ghost">清除</button>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:auto;color:var(--muted);">
+            <input type="checkbox" id="cookieRemember" style="accent-color:var(--accent-dark);" /> 记住我
+          </label>
         </div>
+        <div id="cookieExpiry" style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;display:none;"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">含 <code>sessionid_ss</code> 等登录 cookie 可获取礼物事件</div>
       </div>
       <div>
@@ -680,9 +684,35 @@ curl -X POST http://${base}/api/webhooks \\
   // ---- Cookie 管理 ----
   function updateCookieStatus(s) {
     const el = $('cookieStatus');
+    const ex = $('cookieExpiry');
+    const cb = $('cookieRemember');
     if (!s.set) { el.textContent = '未设置'; el.style.color = 'var(--muted)'; }
     else if (s.hasLogin) { el.textContent = '已设置（登录态 ✓）'; el.style.color = '#2d7a4c'; }
     else { el.textContent = '已设置（游客）'; el.style.color = '#a8781a'; }
+    // "记住我"复选框：已持久化时自动勾选
+    cb.checked = !!s.persisted;
+    // 过期时间展示
+    if (!s.set) { ex.style.display = 'none'; return; }
+    if (s.expiresAt) {
+      const exp = new Date(s.expiresAt);
+      const now = Date.now();
+      const txt = exp.toLocaleString('zh-CN', { hour12: false });
+      if (s.expiresAt < now) {
+        ex.innerHTML = `⏰ 过期时间：${txt} — <span style="color:#a33;">已过期</span>`;
+      } else {
+        const days = Math.floor((s.expiresAt - now) / 86400000);
+        const hrs = Math.floor(((s.expiresAt - now) % 86400000) / 3600000);
+        const remain = days > 0 ? `${days} 天 ${hrs} 小时` : `${hrs} 小时`;
+        ex.innerHTML = `⏰ 过期时间：${txt}（还剩 ${remain}）`;
+      }
+      ex.style.display = 'block';
+    } else if (s.persisted) {
+      const saved = s.savedAt ? new Date(s.savedAt).toLocaleString('zh-CN', { hour12: false }) : '';
+      ex.innerHTML = `💾 已持久化${saved ? '（保存于 ' + saved + '）' : ''}，过期时间未知`;
+      ex.style.display = 'block';
+    } else {
+      ex.style.display = 'none';
+    }
   }
   async function refreshCookieStatus() {
     try { updateCookieStatus(await (await fetch('/api/cookie')).json()); } catch {}
@@ -690,7 +720,8 @@ curl -X POST http://${base}/api/webhooks \\
   $('btnSaveCookie').onclick = async () => {
     const v = $('cookieInput').value.trim();
     if (!v) { alert('请先粘贴 cookie'); return; }
-    const r = await fetch('/api/cookie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookie: v }) });
+    const persist = $('cookieRemember').checked;
+    const r = await fetch('/api/cookie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookie: v, persist }) });
     const j = await r.json();
     if (!r.ok) { alert(j.error || '保存失败'); return; }
     updateCookieStatus(j);
@@ -698,7 +729,7 @@ curl -X POST http://${base}/api/webhooks \\
   };
   $('btnClearCookie').onclick = async () => {
     await fetch('/api/cookie', { method: 'DELETE' });
-    updateCookieStatus({ set: false, hasLogin: false, keys: [] });
+    updateCookieStatus({ set: false, hasLogin: false, keys: [], expiresAt: null, savedAt: null, persisted: false });
   };
   refreshCookieStatus();
 

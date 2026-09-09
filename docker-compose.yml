@@ -11,4 +11,7 @@ services:
       DYHUB_HEADED: "0"
     # Chromium 渲染依赖共享内存；默认 64MB 易导致页面崩溃
     shm_size: "2gb"
+    # 持久化 cookie（勾选"记住我"后写入 data/cookie.json，重新部署后自动恢复）
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped

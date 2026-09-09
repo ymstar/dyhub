@@ -58,6 +58,7 @@ docker compose up -d --build   # 一键启动（内置 Chromium + 中文字体�
 - **roomId 统一为 web_rid**（用户可识别的房间短号），非消息体内的内部 webcast roomId。避免房间管理与订阅过滤失配。事件 `roomId` 取自采集会话的 `meta.roomId`，不取消息体。
 - **两种内核产出相同的 `RawProtoMessage`**，管道与分发层无感知。切换内核只需改 `DYHUB_COLLECTOR` 环境变量。
 - **轻量内核共享 cookie**（模块级 `sharedJar`，TTL 15min），多房间并发只跑一次 cookie 链，避免高频请求触发风控。`DYHUB_COOKIE` 环境变量可直接注入浏览器复制的 cookie，绕过 cookie 链请求（解决容器 IP 被风控）。
+- **Cookie 持久化**（`cookieStore.ts`）：Dashboard 勾选"记住我"后 cookie 写入 `data/cookie.json`，Docker 重新部署后自动恢复，直到过期或手动清除。启动时 `DYHUB_COOKIE` 环境变量优先于磁盘文件。解析器同时支持 Cookie 请求头（`k=v; k=v`）与 Set-Cookie 响应头（含 `Expires`/`Max-Age`）两种格式，后者可提取并展示过期时间。
 - **ESM 项目**（`"type": "module"`），所有内部 import 用 `.js` 扩展名（NodeNext moduleResolution 要求）。TypeScript 7 + Node ≥ 20。
 - **`long` 库处理 protobuf 64 位整数**，`longToStr()` 工具函数避免精度丢失，所有 id 字段用字符串。
 
