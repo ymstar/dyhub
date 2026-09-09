@@ -83,7 +83,7 @@ async function main() {
     webhookDispatcher: webhooks,
     startedAt,
   });
-  wsDispatcher = new WsDispatcher(app.server, bus);
+  wsDispatcher = new WsDispatcher(app.server, bus, collector);
 
   await app.listen({ port: PORT, host: HOST });
   console.log(`[dyhub] 管理台就绪: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);

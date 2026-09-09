@@ -59,6 +59,8 @@ export class Collector {
   private saved = new Map<string, { meta: RoomMeta | null; msgCount: number; stoppedAt: number }>();
   /** 连接过程进度 */
   private progress = new Map<string, { step: ConnectStep; detail?: string; ts: number }>();
+  /** 进行中的连接 Promise，防止并发重复连接同一房间（多个订阅者同时接入时只开一次采集） */
+  private connecting = new Map<string, Promise<RoomInfo>>();
   private readonly browser?: BrowserManager;
   private readonly createSession?: (roomId: string) => SessionLike;
   private readonly onMessage: CollectorOptions['onMessage'];
@@ -69,8 +71,21 @@ export class Collector {
     this.onMessage = opts.onMessage;
   }
 
-  /** 连接并开始采集一个直播间（若房间处于“已停止”保留态，直接恢复） */
+  /**
+   * 连接并开始采集一个直播间（若房间处于“已停止”保留态，直接恢复）。
+   * 并发调用同一 roomId 只触发一次实际连接，复用进行中的 Promise —— 多个订阅者
+   * 同时接入同一房间时不会重复开浏览器页面 / 重复建 wss。
+   */
   async connect(roomId: string): Promise<RoomInfo> {
+    if (this.sessions.has(roomId)) return this.getRoomInfo(roomId)!;
+    const pending = this.connecting.get(roomId);
+    if (pending) return pending;
+    const p = this.doConnect(roomId).finally(() => this.connecting.delete(roomId));
+    this.connecting.set(roomId, p);
+    return p;
+  }
+
+  private async doConnect(roomId: string): Promise<RoomInfo> {
     if (this.sessions.has(roomId)) {
       return this.getRoomInfo(roomId)!;
     }

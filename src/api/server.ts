@@ -116,7 +116,20 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
       types,
     };
     deps.webhookDispatcher.addTarget(target);
-    return { ok: true, webhook: target };
+    // 订阅房间未活跃时自动触发采集（roomId 为 * 时不针对具体房间，跳过）
+    let connecting = false;
+    if (roomId !== '*') {
+      const info = deps.collector.getRoomInfo(roomId);
+      if (!info || info.status === 'stopped') {
+        connecting = true;
+        deps.collector
+          .connect(roomId)
+          .catch((e: unknown) =>
+            console.error(`[dyhub] webhook 触发房间 ${roomId} 自动连接失败:`, e instanceof Error ? e.message : e),
+          );
+      }
+    }
+    return { ok: true, webhook: target, connecting };
   });
 
   app.delete('/api/webhooks/:id', async (req, reply) => {
@@ -140,7 +153,7 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   }));
 
   // ---- SSE 实时事件（/api/events?roomId=&types=chat,gift）----
-  registerSseRoute(app, deps.bus);
+  registerSseRoute(app, deps.bus, deps.collector);
 
   return app;
 }

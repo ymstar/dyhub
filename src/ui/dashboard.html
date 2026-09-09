@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <link rel="icon" type="image/png" href="/favicon.png" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>DyHub 弹幕中台控制台</title>
+<title>抖音弹幕中台控制台</title>
 <style>
   :root {
     --bg: #F4F3EE; --card: #FFFFFF; --border: #E4E3DD;
@@ -148,6 +148,7 @@
   .test-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #bbb; display: inline-block; }
   .test-status .dot.on { background: #52C41A; }
   .test-status .dot.off { background: #EA6668; }
+  .test-status .dot.pending { background: #f0a020; }
   .test-feed { height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; background: #fafaf8; padding: 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; }
   .test-feed .line { padding: 2px 0; border-bottom: 1px dashed #ecece8; color: #333; word-break: break-all; }
   .test-feed .line .ty { color: var(--accent-dark); font-weight: 600; }
@@ -156,7 +157,7 @@
 <body>
 <header>
   <img class="logo" src="/logo.png" alt="DyHub" />
-  <h1>DyHub <span>弹幕中台</span></h1>
+  <h1>抖音 <span>弹幕中台</span></h1>
   <div class="stat">
     <span>WS 客户端 <b id="stClients">0</b></span>
     <span>累计事件 <b id="stEvents">0</b></span>
@@ -344,6 +345,10 @@ const ws = new WebSocket('${wsAddr}');
 ws.onmessage = (m) => {
   const ev = JSON.parse(m.data);
   if (ev.type === '__hello') return;
+  // 房间未连接时后端自动触发采集，推送进度帧：
+  if (ev.type === '__connecting') return console.log('房间连接中…');
+  if (ev.type === '__connected') return console.log('房间已就绪');
+  if (ev.type === '__error') return console.error(ev.error);
   // ev: { id, roomId, type, ts, user, data }
   console.log(ev.user?.nickname, ev.data?.content ?? ev.type);
 };`;
@@ -366,7 +371,35 @@ curl -X POST http://${base}/api/webhooks \\
   // ---- 实时对接测试 ----
   function setTestStatus(txt, on) {
     $('testStatus').textContent = txt;
-    $('testDot').className = 'dot ' + (on ? 'on' : 'off');
+    $('testDot').className = 'dot ' + (on === true || on === 'on' ? 'on' : on === 'pending' ? 'pending' : 'off');
+  }
+  // 控制帧（__ 前缀）：房间自动连接进度，非弹幕事件
+  function isControl(ev) { return typeof ev?.type === 'string' && ev.type.startsWith('__'); }
+  /** 处理 __connecting / __connected / __error 控制帧，更新测试通道状态与日志 */
+  function handleControl(ev) {
+    if (ev.type === '__connecting') {
+      setTestStatus(`房间 ${ev.roomId} 自动连接中…`, 'pending');
+      testSystem(`⟳ 房间 ${ev.roomId} 未连接，已自动触发采集`, 'connecting');
+    } else if (ev.type === '__connected') {
+      setTestStatus(`房间 ${ev.roomId} 已就绪`, true);
+      const step = ev.room && ev.room.progress ? `（${ev.room.progress.step}）` : '';
+      testSystem(`✓ 房间 ${ev.roomId} 已连接${step}`, 'connected');
+    } else if (ev.type === '__error') {
+      setTestStatus(`房间 ${ev.roomId} 连接失败`, false);
+      testSystem(`✕ ${ev.error || '房间连接失败'}`, 'error');
+    }
+  }
+  /** 测试日志区写入一条系统提示行（connecting 黄 / connected 绿 / error 红） */
+  function testSystem(text, kind) {
+    const feed = $('testFeed');
+    const empty = feed.querySelector('.empty'); if (empty) empty.remove();
+    const line = document.createElement('div');
+    line.className = 'line';
+    const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const color = kind === 'connected' ? '#2d7a4c' : kind === 'error' ? '#a33' : '#a8781a';
+    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span style="color:${color};font-weight:600">${escapeHtml(text)}</span>`;
+    feed.appendChild(line);
+    feed.scrollTop = feed.scrollHeight;
   }
   function testAppend(ev) {
     const feed = $('testFeed');
@@ -428,13 +461,13 @@ curl -X POST http://${base}/api/webhooks \\
     if (channel === 'ws') {
       testWs = new WebSocket(`${wsProto}://${base}/ws?${params}`);
       testWs.onopen = () => { setTestStatus('已连接 (WebSocket)', true); };
-      testWs.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (ev.type !== '__hello') testAppend(ev); } catch {} };
+      testWs.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (isControl(ev)) { handleControl(ev); return; } testAppend(ev); } catch {} };
       testWs.onclose = () => { setTestStatus('连接已断开', false); };
       testWs.onerror = () => setTestStatus('连接错误', false);
     } else {
       testEs = new EventSource(`http://${base}/api/events?${params}`);
       testEs.onopen = () => setTestStatus('已连接 (SSE)', true);
-      testEs.onmessage = (e) => { try { testAppend(JSON.parse(e.data)); } catch {} };
+      testEs.onmessage = (e) => { try { const ev = JSON.parse(e.data); if (isControl(ev)) { handleControl(ev); return; } testAppend(ev); } catch {} };
       testEs.onerror = () => setTestStatus('连接异常，重连中...', false);
     }
     $('btnTest').disabled = true; $('btnTestStop').disabled = false;
@@ -469,7 +502,7 @@ curl -X POST http://${base}/api/webhooks \\
     ws.onclose = () => { setTimeout(connectWS, 3000); };
     ws.onerror = () => ws.close();
     ws.onmessage = (m) => {
-      try { const ev = JSON.parse(m.data); if (ev.type === '__hello') return; append(ev); } catch {}
+      try { const ev = JSON.parse(m.data); if (isControl(ev)) return; append(ev); } catch {}
     };
   }
 

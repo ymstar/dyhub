@@ -8,8 +8,9 @@
 import type { FastifyInstance } from 'fastify';
 import { EventBus } from '../pipeline/eventBus.js';
 import { eventMatches, type DanmakuEvent, type EventFilter } from '../types/events.js';
+import type { Collector } from '../collector/collector.js';
 
-export function registerSseRoute(app: FastifyInstance, bus: EventBus): void {
+export function registerSseRoute(app: FastifyInstance, bus: EventBus, collector: Collector): void {
   app.get('/api/events', (req, reply) => {
     const query = req.query as Record<string, string | undefined>;
     const roomId = query.roomId ?? undefined;
@@ -23,6 +24,25 @@ export function registerSseRoute(app: FastifyInstance, bus: EventBus): void {
       'X-Accel-Buffering': 'no',
     });
     reply.raw.write('retry: 3000\n\n');
+    const write = (obj: Record<string, unknown>) => {
+      if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+    };
+    // 订阅者接入即连接：房间未活跃时自动触发采集，推送 __connecting → __connected / __error
+    if (roomId) {
+      const info = collector.getRoomInfo(roomId);
+      if (info && info.status !== 'stopped') {
+        write({ type: '__connected', roomId, room: info, ts: Date.now() });
+      } else {
+        write({ type: '__connecting', roomId, ts: Date.now() });
+        collector
+          .connect(roomId)
+          .then((room) => write({ type: '__connected', roomId, room, ts: Date.now() }))
+          .catch((e: unknown) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            write({ type: '__error', roomId, error: `房间自动连接失败: ${msg}`, ts: Date.now() });
+          });
+      }
+    }
     // 心跳（防止代理断开空闲连接）
     const hb = setInterval(() => {
       if (!reply.raw.writableEnded) reply.raw.write(':hb\n\n');
