@@ -86,6 +86,8 @@
   .avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; object-fit: cover; align-self: center; background: #eee; }
   .avatar-fallback { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
   .ev .what { flex: 1; word-break: break-word; }
+  .emoji-img { display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin: 0 1px; border-radius: 3px; object-fit: cover; }
+  .test-feed .emoji-img { width: 16px; height: 16px; }
   .ev .tm { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
   .empty { color: var(--muted); text-align: center; padding: 40px; font-size: 13px; }
   footer { flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--card); padding: 8px 20px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
@@ -295,6 +297,7 @@
     <div class="ov-note" id="ovNote">浏览器内核冷启动约需 3~15 秒</div>
   </div>
 </div>
+<script src="/emoji.js"></script>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -382,7 +385,7 @@ curl -X POST http://${base}/api/webhooks \\
     const giftIcon = (ev.type === 'gift' && ev.data?.giftIcon)
       ? `<img src="${escapeHtml(ev.data.giftIcon)}" referrerpolicy="no-referrer" style="width:18px;height:18px;vertical-align:middle;border-radius:3px;object-fit:cover;flex:0 0 auto;" onerror="this.style.display='none'" /> `
       : '';
-    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}${giftIcon}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${escapeHtml(String(what))}</span>`;
+    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}${giftIcon}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${ev.type === 'chat' ? renderChatContent(ev.data?.content) : escapeHtml(String(what))}</span>`;
     feed.appendChild(line);
     while (feed.children.length > 300) feed.removeChild(feed.firstChild);
     feed.scrollTop = feed.scrollHeight;
@@ -395,6 +398,23 @@ curl -X POST http://${base}/api/webhooks \\
     return '';
   }
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  // 弹幕表情渲染：将 [表情名] 占位符替换为抖音 CDN 表情图
+  // 参考: https://github.com/skmcj/dycast  — 用 split(/(\[.*?])/) 切分，逐段查表
+  function renderChatContent(text) {
+    if (!text) return '';
+    const parts = String(text).split(/(\[.*?])/);
+    let html = '';
+    for (const part of parts) {
+      if (!part) continue;
+      const url = window.DOUYIN_EMOJI && window.DOUYIN_EMOJI[part];
+      if (url) {
+        html += `<img class="emoji-img" src="${url}" alt="${escapeHtml(part)}" title="${escapeHtml(part)}" referrerpolicy="no-referrer" loading="lazy" />`;
+      } else {
+        html += escapeHtml(part);
+      }
+    }
+    return html;
+  }
 
   $('btnTest').onclick = () => {
     stopTest();
@@ -463,7 +483,7 @@ curl -X POST http://${base}/api/webhooks \\
     let who = '', what = '';
     if (ev.user) who = ev.user.nickname || ev.user.id;
     switch (ev.type) {
-      case 'chat': what = ev.data.content; break;
+      case 'chat': what = renderChatContent(ev.data.content); break;
       case 'gift': {
         const cnt = ev.data.comboCount || ev.data.repeatCount || 1;
         const icon = ev.data.giftIcon
