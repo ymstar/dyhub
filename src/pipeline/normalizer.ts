@@ -98,7 +98,7 @@ export function normalize(msg: RawProtoMessage, meta: { roomId: string }): Danma
     }
     case 'WebcastGiftMessage': {
       const gift = body.gift;
-      const iconUrls = gift?.icon?.urlList;
+      const iconUrls = gift?.image?.urlList;
       const ev: GiftEvent = {
         ...base,
         type: 'gift',

@@ -61,9 +61,12 @@ message GiftMessage {
   GiftStruct gift = 15;
 }
 message GiftStruct {
-  int64 id = 1;
-  string name = 2;
-  int32 diamond_count = 5;
+  Image image = 1;
+  string describe = 2;
+  int64 id = 5;
+  int32 type = 11;
+  int32 diamond_count = 12;
+  string name = 16;
   Image icon = 17;
 }
 message MemberMessage {
