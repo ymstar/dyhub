@@ -67,7 +67,7 @@ message GiftStruct {
   int32 type = 11;
   int32 diamond_count = 12;
   string name = 16;
-  Image icon = 17;
+  Image icon = 21;
 }
 message MemberMessage {
   Common common = 1;
@@ -99,12 +99,16 @@ message Common {
 }
 message User {
   uint64 id = 1;
+  uint64 shortId = 2;
   string nickName = 3;
-  uint32 gender = 5;
-  // field 9 is coded avatar url (anti-crawler prefix)
-  string signature = 9;
-  Image avatarThumb = 10;
-  Image avatarMedium = 11;
+  uint32 gender = 4;
+  string signature = 5;
+  uint32 level = 6;
+  uint64 birthday = 7;
+  string telephone = 8;
+  Image avatarThumb = 9;
+  Image avatarMedium = 10;
+  Image avatarLarge = 11;
   string secUid = 46;
   string idStr = 1029;
 }

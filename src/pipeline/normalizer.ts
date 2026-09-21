@@ -28,20 +28,15 @@ function toUser(body: any): DanmakuUser | undefined {
 
 /**
  * 提取头像 URL。
- * 抖音把头像放在两处之一：
- *  1. avatarThumb.urlList（部分消息类型有）
- *  2. User field 9（signature），值为 "\nxhttps://...aweme-avatar/xxx.jpeg?from=..."（防爬编码，前面带 \nx 前缀）
- * 两处都取不到返回 undefined。
+ * 优先取 avatarThumb.urlList 首个（User field 9），
+ * 取不到则回退到 avatarMedium / avatarLarge。
  */
 function extractAvatar(u: any): string | undefined {
-  const urls = u.avatarThumb?.urlList;
-  if (Array.isArray(urls) && urls.length && typeof urls[0] === 'string' && urls[0].startsWith('http')) {
-    return urls[0];
-  }
-  const coded = u.signature;
-  if (typeof coded === 'string') {
-    const m = coded.match(/https?:\/\/[^\s]+/);
-    if (m) return m[0];
+  for (const field of ['avatarThumb', 'avatarMedium', 'avatarLarge']) {
+    const urls = u[field]?.urlList;
+    if (Array.isArray(urls) && urls.length && typeof urls[0] === 'string' && urls[0].startsWith('http')) {
+      return urls[0];
+    }
   }
   return undefined;
 }
@@ -98,7 +93,7 @@ export function normalize(msg: RawProtoMessage, meta: { roomId: string }): Danma
     }
     case 'WebcastGiftMessage': {
       const gift = body.gift;
-      const iconUrls = gift?.image?.urlList;
+      const iconUrls = gift?.icon?.urlList ?? gift?.image?.urlList;
       const ev: GiftEvent = {
         ...base,
         type: 'gift',
