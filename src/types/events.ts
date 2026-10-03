@@ -56,9 +56,14 @@ export interface GiftEvent extends BaseDanmakuEvent {
     giftName: string;
     giftIcon?: string;       // 礼物图标 URL
     diamondCount?: number;   // 价值（钻石）
-    repeatCount?: number;    // 连击次数
+    repeatCount?: number;    // 连击次数（本组累计）
     comboCount?: number;     // 连击（主播端口径）
+    groupCount?: number;     // 每次送出的数量（礼物组）
     repeatEnd?: boolean;     // 是否连击结束
+    groupId?: string;        // 同一次送礼 / 同一组连击共享的 id，用于合并重复推送
+    combo?: boolean;         // 该礼物是否可连击
+    sendType?: number;       // 抖音送礼类型（原样透传）
+    traceId?: string;        // 抖音送礼链路 id（原样透传）
   };
 }
 

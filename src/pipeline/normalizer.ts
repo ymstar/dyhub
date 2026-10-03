@@ -47,8 +47,10 @@ function extractAvatar(u: any): string | undefined {
 function createTime(body: any): number {
   const t = body?.common?.createTime;
   const n = typeof t === 'bigint' ? Number(t) : Number(t ?? 0);
-  // createTime 是秒，转毫秒；0 / 无效时回退到当前时间
-  return Number.isFinite(n) && n > 0 ? n * 1000 : Date.now();
+  // 0 / 无效时回退到当前时间
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  // 抖音的 createTime 有时是秒、有时是毫秒（同一礼物的两条消息就可能不同），统一为毫秒
+  return n < 1e12 ? n * 1000 : n;
 }
 
 /**
@@ -98,22 +100,27 @@ export function normalize(msg: RawProtoMessage, meta: { roomId: string }): Danma
         ...base,
         type: 'gift',
         data: {
-          giftId: longToStr(body.gift_id ?? gift?.id),
+          giftId: longToStr(body.giftId || gift?.id),
           giftName: gift?.name || '',
           giftIcon:
             Array.isArray(iconUrls) && iconUrls.length && typeof iconUrls[0] === 'string' && iconUrls[0].startsWith('http')
               ? iconUrls[0]
               : undefined,
-          diamondCount: Number(gift?.diamond_count ?? 0),
-          repeatCount: Number(body.repeat_count ?? 0),
-          comboCount: Number(body.combo_count ?? 0),
-          repeatEnd: Boolean(body.repeat_end),
+          diamondCount: Number(gift?.diamondCount ?? 0),
+          repeatCount: Number(body.repeatCount ?? 0),
+          comboCount: Number(body.comboCount ?? 0),
+          groupCount: Number(body.groupCount ?? 0),
+          repeatEnd: Boolean(body.repeatEnd),
+          groupId: longToStr(body.groupId) || undefined,
+          combo: Boolean(gift?.combo),
+          sendType: Number(body.sendType ?? 0),
+          traceId: body.traceId || undefined,
         },
       };
       return ev;
     }
     case 'WebcastMemberMessage':
-      return { ...base, type: 'member', data: { memberCount: Number(body.member_count ?? 0) } };
+      return { ...base, type: 'member', data: { memberCount: Number(body.memberCount ?? 0) } };
     case 'WebcastLikeMessage':
       return {
         ...base,
