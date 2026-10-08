@@ -46,6 +46,8 @@ message Message {
 }
 
 // ---- 具体消息体（按需声明，未声明字段会被忽略）----
+// 字段名用 camelCase：protobufjs 默认把字段名转成 camelCase，解码后的属性名与这里一致。
+// 字段号对照 DouyinBarrageGrab / dycast 的 message.proto。
 message ChatMessage {
   Common common = 1;
   User user = 2;
@@ -53,26 +55,33 @@ message ChatMessage {
 }
 message GiftMessage {
   Common common = 1;
-  int64 gift_id = 2;
-  int64 repeat_count = 5;
-  int64 combo_count = 6;
+  int64 giftId = 2;
+  int64 groupCount = 4;
+  int64 repeatCount = 5;
+  int64 comboCount = 6;
   User user = 7;
-  int32 repeat_end = 9;
+  int32 repeatEnd = 9;
+  int64 groupId = 11;
   GiftStruct gift = 15;
+  string logId = 16;
+  int64 sendType = 17;
+  int64 sendTime = 33;
+  string traceId = 35;
 }
 message GiftStruct {
   Image image = 1;
   string describe = 2;
   int64 id = 5;
+  bool combo = 10;
   int32 type = 11;
-  int32 diamond_count = 12;
+  int32 diamondCount = 12;
   string name = 16;
   Image icon = 21;
 }
 message MemberMessage {
   Common common = 1;
   User user = 2;
-  int64 member_count = 3;
+  int64 memberCount = 3;
 }
 message LikeMessage {
   Common common = 1;
