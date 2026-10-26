@@ -1,6 +1,6 @@
 ---
 name: dyhub
-description: DyHub 抖音直播弹幕采集与分发中台对接指南。当用户需要采集抖音直播弹幕、连接直播间、监听弹幕/礼物/进场/点赞/关注事件、或通过 REST API / WebSocket / SSE / Webhook 消费弹幕数据时使用。触发词：dyhub、抖音弹幕、直播弹幕、弹幕采集、弹幕中台、danmaku、live stream chat。
+description: DyHub 抖音直播弹幕采集与分发中台对接指南。当用户需要采集抖音直播弹幕、连接直播间、监听弹幕/礼物/进场/点赞/关注/房间状态事件、或通过 REST API / WebSocket / SSE / Webhook 消费弹幕数据时使用。触发词：dyhub、抖音弹幕、直播弹幕、弹幕采集、弹幕中台、danmaku、live stream chat。
 ---
 
 # DyHub — 抖音直播弹幕采集与分发中台
@@ -25,6 +25,7 @@ DyHub 是一个**抖音直播弹幕采集与分发中台**。它连接抖音直�
 | `like` | 点赞 | `data.count`, `data.total` |
 | `follow` | 关注 | `data.action` |
 | `room` | 房间统计 | `data.total`, `data.popularity` |
+| `roomStatus` | 房间状态变更 | `data.status`（connecting/live/closed/error/stopped）, `data.message` |
 | `unknown` | 未识别消息（透传） | `data.method`, `data.payloadBase64` |
 
 ---
@@ -335,6 +336,23 @@ curl -X DELETE http://localhost:8757/api/rooms/708764876300
 ```json
 { "data": { "total": 1500, "popularity": 8000, "totalUser": 50000 } }
 ```
+
+**roomStatus（房间状态变更）**
+```json
+{ "data": { "status": "live", "message": "采集正常" } }
+```
+
+`status` 取值：
+
+| status | 说明 |
+|---|---|
+| `connecting` | 房间正在连接中 |
+| `live` | 采集正常，直播进行中 |
+| `closed` | 直播间已关闭/下播 |
+| `error` | 连接失败（`message` 含错误信息） |
+| `stopped` | 已手动断开/停止 |
+
+> **提示**：订阅 `types=roomStatus`（或与其他类型混合，如 `types=chat,gift,roomStatus`）可让 Agent 感知主播下播、连接失败等状态变化，无需轮询管理 API。`roomStatus` 事件不经去重，每次状态变更都是独立事件。
 
 ---
 
