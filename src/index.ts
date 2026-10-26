@@ -34,6 +34,20 @@ async function main() {
 
   let collector: Collector;
   let browser: BrowserManager | null = null;
+
+  // 房间状态变更 → 发布 RoomStatusEvent 到 EventBus（不经 dedupe，每次变更都是独立事件）
+  const onStatusChange = (roomId: string, status: string, error?: string) => {
+    bus.publish({
+      id: `rs_${roomId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      roomId,
+      platform: 'douyin',
+      type: 'roomStatus',
+      ts: Date.now(),
+      receivedAt: Date.now(),
+      data: { status, message: error },
+    });
+  };
+
   if (kernel === 'lightweight') {
     const { LightweightSession } = await import('./collector/lightweightSession.js');
     collector = new Collector({
@@ -49,6 +63,7 @@ async function main() {
           cookie,
         }),
       onMessage: () => {},
+      onStatusChange,
     });
     console.log('[dyhub] 采集内核: lightweight（纯代码直连，连接快 / 低资源）');
   } else {
@@ -69,6 +84,7 @@ async function main() {
         if (dedupe.isDuplicate(ev.id)) return;
         bus.publish(ev);
       },
+      onStatusChange,
     });
   }
 

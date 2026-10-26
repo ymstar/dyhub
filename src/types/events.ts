@@ -21,8 +21,9 @@ export type DanmakuEventType =
   | 'member'    // 进场
   | 'like'      // 点赞
   | 'follow'    // 关注
-  | 'room'      // 房间统计（在线人数等）
-  | 'unknown';  // 尚未标准化的原始消息（透传）
+  | 'room'        // 房间统计（在线人数等）
+  | 'roomStatus'  // 房间状态变更（connecting/live/closed/error/stopped）
+  | 'unknown';    // 尚未标准化的原始消息（透传）
 
 /** 直播间用户（标准化） */
 export interface DanmakuUser {
@@ -87,6 +88,17 @@ export interface RoomEvent extends BaseDanmakuEvent {
   data: { total?: number; popularity?: number; totalUser?: number };
 }
 
+/** 房间状态变更事件 —— 通知消费端房间采集状态变化 */
+export interface RoomStatusEvent extends BaseDanmakuEvent {
+  type: 'roomStatus';
+  data: {
+    /** 房间当前状态：connecting | live | closed | error | stopped */
+    status: string;
+    /** 状态变更的补充说明（错误信息等） */
+    message?: string;
+  };
+}
+
 export interface UnknownEvent extends BaseDanmakuEvent {
   type: 'unknown';
   data: { method: string; payloadBase64?: string };
@@ -100,6 +112,7 @@ export type DanmakuEvent =
   | LikeEvent
   | FollowEvent
   | RoomEvent
+  | RoomStatusEvent
   | UnknownEvent;
 
 /** 事件订阅过滤器：可订阅全部，或按 roomId / type 过滤 */

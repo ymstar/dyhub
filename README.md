@@ -185,6 +185,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `like` | 点赞 | `count` / `total` |
 | `follow` | 关注 | `action` |
 | `room` | 直播间统计 | `total`（在线）/ `popularity` / `totalUser` |
+| `roomStatus` | 房间状态变更 | `status`（connecting/live/closed/error/stopped）/ `message`（错误信息） |
 | `unknown` | 未识别消息透传 | `method` |
 
 > **礼物计数**：抖音对同一次送礼会推送多条 `WebcastGiftMessage`（连击进度 + 连击结束时一条 `repeatEnd: true` 的收尾消息），它们 `msgId` 不同、`groupId` 相同，因此不会被去重。按 `giftId + groupId` 合并、取 `repeatCount` 的增量计数，并忽略已见过的分组的收尾消息即可避免重复。
@@ -228,6 +229,8 @@ curl -X POST http://localhost:8757/api/webhooks \
 ```
 
 **通用参数**（WS / SSE）：`roomId`（选填，订阅指定房间，缺省全部）、`types`（选填，逗号分隔的事件类型过滤）。
+
+> **房间状态感知**：订阅 `types=roomStatus`（或与其他类型混合，如 `types=chat,gift,roomStatus`）可接收房间状态变更事件。当房间进入 `connecting` / `live` / `closed` / `error` / `stopped` 状态时，中台会推送一条 `type: "roomStatus"` 事件，消费端可据此感知主播下播、连接失败等状态变化，无需轮询管理 API。
 
 ---
 

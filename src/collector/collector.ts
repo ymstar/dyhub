@@ -54,6 +54,8 @@ export interface CollectorOptions {
   createSession?: (roomId: string, cookie?: string) => SessionLike;
   /** 采集到原始消息的回调（交给管道标准化） */
   onMessage: (msg: RawProtoMessage, meta: { roomId: string }) => void;
+  /** 房间状态变更回调（由上层 index.ts 接线，发布 RoomStatusEvent 到 EventBus） */
+  onStatusChange?: (roomId: string, status: string, error?: string) => void;
 }
 
 export class Collector {
@@ -71,11 +73,20 @@ export class Collector {
   private readonly browser?: BrowserManager;
   private readonly createSession?: (roomId: string, cookie?: string) => SessionLike;
   private readonly onMessage: CollectorOptions['onMessage'];
+  private readonly onStatusChange?: CollectorOptions['onStatusChange'];
+  /** 每房间上次已知状态，用于轮询去重 */
+  private lastStatus = new Map<string, string>();
+  /** 状态轮询定时器（2s 检测会话内部状态变更，如 wss 断开 / 页面关闭） */
+  private statusTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: CollectorOptions) {
     this.browser = opts.browser;
     this.createSession = opts.createSession;
     this.onMessage = opts.onMessage;
+    this.onStatusChange = opts.onStatusChange;
+    if (this.onStatusChange) {
+      this.statusTimer = setInterval(() => this.pollStatuses(), 2000);
+    }
   }
 
   /**
@@ -129,6 +140,7 @@ export class Collector {
       : await this.createBrowserSession(roomId, cookie);
     this.sessions.set(roomId, session);
     session.start?.();
+    this.fireStatusChange(roomId, 'connecting');
     setProgress('listening');
     // 异步补全主播信息（不阻塞连接，取不到不报错）
     // 轻量内核的 meta 在 resolveRoomId（异步）完成时才可用；waitForLive 可能因限流超时，
@@ -162,11 +174,13 @@ export class Collector {
         })();
         this.errors.set(roomId, msg);
         setProgress('error', msg);
+        this.fireStatusChange(roomId, session.status, msg);
         // 未开播时也补全主播信息，避免显示「未知主播」
         ensureMeta(0);
         return;
       }
       setProgress('live');
+      this.fireStatusChange(roomId, 'live');
       ensureMeta(0);
     });
     return this.getRoomInfo(roomId)!;
@@ -198,6 +212,7 @@ export class Collector {
         msgCount: s.stats().msgCount,
         stoppedAt: Date.now(),
       });
+      this.fireStatusChange(roomId, 'stopped');
     }
     this.errors.delete(roomId);
     this.progress.delete(roomId);
@@ -209,12 +224,14 @@ export class Collector {
     if (s) {
       await s.stop();
       this.sessions.delete(roomId);
+      this.fireStatusChange(roomId, 'stopped');
     }
     this.saved.delete(roomId);
     this.errors.delete(roomId);
     this.metas.delete(roomId);
     this.progress.delete(roomId);
     this.ownCookies.delete(roomId);
+    this.lastStatus.delete(roomId);
   }
 
   /** 全部已连接房间 + 已停止保留的房间 */
@@ -254,5 +271,26 @@ export class Collector {
   async disconnectAll(): Promise<void> {
     const ids = [...this.sessions.keys()];
     for (const id of ids) await this.disconnect(id);
+    if (this.statusTimer) {
+      clearInterval(this.statusTimer);
+      this.statusTimer = null;
+    }
+  }
+
+  /** 发射状态变更（去重：与 lastStatus 相同则跳过） */
+  private fireStatusChange(roomId: string, status: string, error?: string): void {
+    if (!this.onStatusChange) return;
+    const prev = this.lastStatus.get(roomId);
+    if (prev === status) return;
+    this.lastStatus.set(roomId, status);
+    this.onStatusChange(roomId, status, error);
+  }
+
+  /** 轮询所有活跃会话状态，检测会话内部状态变更（wss 断开 / 页面关闭等） */
+  private pollStatuses(): void {
+    for (const [roomId, session] of this.sessions) {
+      const error = this.errors.get(roomId);
+      this.fireStatusChange(roomId, session.status, error);
+    }
   }
 }

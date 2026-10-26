@@ -82,7 +82,7 @@
   @keyframes fadein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
   .tag { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 20px; color: #fff; }
   .tag.chat { background: var(--chat); } .tag.gift { background: var(--gift); } .tag.member { background: var(--member); }
-  .tag.follow { background: var(--follow); } .tag.like { background: var(--like); } .tag.room { background: var(--room); } .tag.unknown { background: #999; }
+  .tag.follow { background: var(--follow); } .tag.like { background: var(--like); } .tag.room { background: var(--room); } .tag.roomStatus { background: #7c6bad; } .tag.unknown { background: #999; }
   .ev .who { font-weight: 600; color: var(--accent-dark); flex: 0 0 auto; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; object-fit: cover; align-self: center; background: #eee; }
   .avatar-fallback { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
@@ -216,6 +216,7 @@
           <label><input type="checkbox" value="follow" checked />关注</label>
           <label><input type="checkbox" value="like" />点赞</label>
           <label><input type="checkbox" value="room" />统计</label>
+          <label><input type="checkbox" value="roomStatus" />状态</label>
           <label><input type="checkbox" value="unknown" />其他</label>
         </div>
       </div>
@@ -321,7 +322,7 @@
     return s.replace(/\D/g, '');
   }
   let ws = null, events = 0, rateCounter = 0, testWs = null, testEs = null;
-  const label = { chat: '弹幕', gift: '礼物', member: '进场', follow: '关注', like: '点赞', room: '统计', unknown: '其他' };
+  const label = { chat: '弹幕', gift: '礼物', member: '进场', follow: '关注', like: '点赞', room: '统计', roomStatus: '状态', unknown: '其他' };
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   const base = `${location.host}`;
 
@@ -535,6 +536,7 @@ curl -X POST http://${base}/api/webhooks \\
       case 'follow': what = '关注了主播'; break;
       case 'like': what = `点赞 ${ev.data.count || 1}`; break;
       case 'room': what = `在线 ${(ev.data.total || 0).toLocaleString()} 人`; break;
+      case 'roomStatus': what = `房间状态: ${({ live: '直播中', connecting: '连接中', closed: '已关闭', error: '连接失败', stopped: '已停止' })[ev.data.status] || ev.data.status}${ev.data.message ? `（${ev.data.message}）` : ''}`; break;
       default: what = ev.data.method || '未知消息';
     }
     const el = document.createElement('div');
