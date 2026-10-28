@@ -371,6 +371,16 @@ npm install -f @typescript/typescript-darwin-x64   # 或 -arm64，按实际报�
 
 ---
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=ymstar%2Fdyhub&type=date&releases=&legend=top-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ymstar/dyhub&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ymstar/dyhub&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ymstar/dyhub&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## 📄 License
 
 [MIT](./LICENSE)
@@ -381,13 +391,3 @@ npm install -f @typescript/typescript-darwin-x64   # 或 -arm64，按实际报�
 
 - [skmcj/dycast](https://github.com/skmcj/dycast) —— 抖音直播弹幕姬
 - [saermart/DouyinLiveWebFetcher](https://github.com/saermart/DouyinLiveWebFetcher) —— 抖音 Live 弹幕采集（AGPL-3.0）
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=ymstar%2Fdyhub&type=date&releases=&legend=top-right">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ymstar/dyhub&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ymstar/dyhub&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ymstar/dyhub&type=date&legend=top-left" />
- </picture>
-</a>
