@@ -8,8 +8,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import fastifyStatic from '@fastify/static';
-import { Collector } from '../collector/collector.js';
+import { Collector, RoomActionError } from '../collector/collector.js';
 import * as cookieStore from '../collector/cookieStore.js';
+import * as loginWindow from '../collector/loginWindow.js';
 import { EventBus } from '../pipeline/eventBus.js';
 import { WebhookDispatcher } from '../dispatch/webhook.js';
 import { registerSseRoute } from '../dispatch/sseServer.js';
@@ -30,6 +31,9 @@ function normalizeRoomIdInput(raw: unknown): string {
   return s.replace(/\D/g, '');
 }
 
+/** 发送弹幕后等它出现在推送流里的最长时间 */
+const CHAT_ECHO_TIMEOUT_MS = 8000;
+
 export interface ApiDeps {
   collector: Collector;
   bus: EventBus;
@@ -49,16 +53,19 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   // ---- Cookie 管理（运行时注入登录态，使礼物事件可获取）----
   app.get('/api/cookie', async () => cookieStore.getStatus());
 
-  app.post('/api/cookie', async (req, reply) => {
-    const { cookie, persist } = (req.body ?? {}) as { cookie?: string; persist?: boolean };
-    if (!cookie || !cookie.trim()) return reply.code(400).send({ error: 'cookie 不能为空' });
-    cookieStore.setCookie(cookie, { persist: persist ?? false });
-    return { ok: true, ...cookieStore.getStatus() };
-  });
-
   app.delete('/api/cookie', async () => {
     cookieStore.clear();
     return { ok: true, ...cookieStore.getStatus() };
+  });
+
+  // ---- 网页登录（弹出 Chrome 窗口打开抖音，用户登录后自动写入 cookie）----
+  app.post('/api/cookie/login', async () => loginWindow.start());
+
+  app.get('/api/cookie/login', async () => loginWindow.getState());
+
+  app.delete('/api/cookie/login', async () => {
+    await loginWindow.cancel();
+    return loginWindow.getState();
   });
 
   // ---- 房间管理 ----
@@ -122,6 +129,60 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
     if (!roomId) return reply.code(400).send({ error: 'roomId 无效' });
     cookieStore.clearRoomCookie(roomId);
     return { ok: true };
+  });
+
+  // ---- 发送弹幕（以登录账号发言，需浏览器内核 + 网页登录）----
+  app.post('/api/rooms/:roomId/chat', async (req, reply) => {
+    const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
+    const { text: rawText } = (req.body ?? {}) as { text?: unknown };
+    const text = typeof rawText === 'string' ? rawText.trim() : '';
+    if (!text) return reply.code(400).send({ error: 'text 必填' });
+    // 先订阅再发送，等自己的弹幕从推送流回来，确认抖音收下了
+    let subId = 0;
+    const echo = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), CHAT_ECHO_TIMEOUT_MS);
+      subId = deps.bus.subscribe({ roomId, type: 'chat' }, (ev) => {
+        if (ev.type === 'chat' && ev.data.content === text) {
+          clearTimeout(timer);
+          resolve(true);
+        }
+      });
+    });
+    try {
+      await deps.collector.sendChat(roomId, text);
+      const echoed = await echo;
+      return { ok: true, echoed };
+    } catch (e: any) {
+      const code = e instanceof RoomActionError ? e.statusCode : 500;
+      return reply.code(code).send({ error: `发送失败: ${e?.message ?? e}` });
+    } finally {
+      deps.bus.unsubscribe(subId);
+    }
+  });
+
+  // ---- 直播流地址（浏览器页面播放器请求的 FLV / HLS 地址，可直接给 ffmpeg 拉流）----
+  app.get('/api/rooms/:roomId/stream', async (req, reply) => {
+    const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
+    try {
+      const url = deps.collector.getStreamUrl(roomId);
+      if (!url) return reply.code(409).send({ error: '播放器尚未请求直播流（可能未开播）' });
+      return { url };
+    } catch (e: any) {
+      const code = e instanceof RoomActionError ? e.statusCode : 500;
+      return reply.code(code).send({ error: `获取直播流失败: ${e?.message ?? e}` });
+    }
+  });
+
+  // ---- 直播画面截图（JPEG）----
+  app.get('/api/rooms/:roomId/screenshot', async (req, reply) => {
+    const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
+    try {
+      const jpeg = await deps.collector.screenshot(roomId);
+      return reply.type('image/jpeg').header('Cache-Control', 'no-store').send(jpeg);
+    } catch (e: any) {
+      const code = e instanceof RoomActionError ? e.statusCode : 500;
+      return reply.code(code).send({ error: `截图失败: ${e?.message ?? e}` });
+    }
   });
 
   // ---- Webhook 管理 ----

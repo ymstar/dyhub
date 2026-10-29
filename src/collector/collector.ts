@@ -26,6 +26,12 @@ export interface SessionLike {
   waitForLive(timeoutMs?: number): Promise<boolean>;
   /** 从页面 HTML 解析开播状态（仅浏览器内核实现；轻量内核在 resolveRoomId 内自行解析） */
   getRoomStatus?(): Promise<number | null>;
+  /** 以登录账号发一条弹幕（仅浏览器内核支持） */
+  sendChat?(text: string): Promise<void>;
+  /** 页面播放器最近请求的直播流地址（FLV / HLS），尚未请求时为 null（仅浏览器内核） */
+  streamUrl?(): string | null;
+  /** 直播画面截图，JPEG（仅浏览器内核） */
+  screenshot?(): Promise<Buffer>;
   /** 会话自带的直播间主播信息（轻量内核连接时解析；无则走 fetchRoomMeta 兜底） */
   meta?: RoomMeta | null;
 }
@@ -56,6 +62,13 @@ export interface CollectorOptions {
   onMessage: (msg: RawProtoMessage, meta: { roomId: string }) => void;
   /** 房间状态变更回调（由上层 index.ts 接线，发布 RoomStatusEvent 到 EventBus） */
   onStatusChange?: (roomId: string, status: string, error?: string) => void;
+}
+
+/** 房间操作（发弹幕 / 取流地址 / 截图）失败，带建议的 HTTP 状态码 */
+export class RoomActionError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+  }
 }
 
 export class Collector {
@@ -190,15 +203,45 @@ export class Collector {
   private async createBrowserSession(roomId: string, cookie?: string): Promise<SessionLike> {
     if (!this.browser) throw new Error('未配置浏览器内核（DYHUB_COLLECTOR=browser 时需要 DYHUB_CHROME）');
     const url = `https://live.douyin.com/${roomId}`;
-    const { page, cdp, context } = await this.browser.openRoom(url, { cookie });
+    const { page, cdp, context, streamUrl } = await this.browser.openRoom(url, { cookie });
     const session = new LiveSession(roomId, page, cdp, {
+      streamUrl,
       onMessage: (msg, meta) => this.onMessage(msg, meta),
+      // 弹幕通道（重新）建立：清掉之前的断开错误
+      onOpen: () => {
+        this.errors.delete(roomId);
+      },
       onError: (err) => {
         this.errors.set(roomId, err.message);
       },
     }, context);
     this.progress.set(roomId, { step: 'launching', detail: '页面已打开，等待弹幕通道', ts: Date.now() });
     return session;
+  }
+
+  /** 在已连接的直播间发一条弹幕 */
+  async sendChat(roomId: string, text: string): Promise<void> {
+    const s = this.liveSession(roomId, 'sendChat', '发送弹幕');
+    await s.sendChat!(text);
+  }
+
+  /** 直播间正在播放的流地址，播放器还没请求时为 null */
+  getStreamUrl(roomId: string): string | null {
+    return this.liveSession(roomId, 'streamUrl', '获取直播流').streamUrl!();
+  }
+
+  /** 直播画面截图（JPEG） */
+  async screenshot(roomId: string): Promise<Buffer> {
+    return this.liveSession(roomId, 'screenshot', '截图').screenshot!();
+  }
+
+  /** 已进入直播的会话，且其内核支持 feature；否则抛出带状态码的 RoomActionError */
+  private liveSession(roomId: string, feature: 'sendChat' | 'streamUrl' | 'screenshot', what: string): SessionLike {
+    const s = this.sessions.get(roomId);
+    if (!s) throw new RoomActionError('房间未连接', 404);
+    if (!s[feature]) throw new RoomActionError(`当前采集内核不支持${what}（需浏览器内核）`, 501);
+    if (s.status !== 'live') throw new RoomActionError('房间弹幕通道未建立', 409);
+    return s;
   }
 
   /** 停止一个直播间的采集（保留房间记录与主播信息，随时可恢复连接） */

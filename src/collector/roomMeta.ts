@@ -12,6 +12,10 @@ const UA =
 export interface RoomMeta {
   /** 主播账号名 */
   nickname: string;
+  /** 主播 uid（anchor.id_str），取不到为空串 */
+  uid: string;
+  /** 主播 sec_uid，取不到为空串 */
+  secUid: string;
   /** 主播头像 URL */
   avatar: string;
   /** 直播标题 / 简介 */
@@ -27,8 +31,12 @@ export function parseRoomMeta(html: string): RoomMeta | null {
   const nickname = clean.match(/"nickname":"([^"]{1,80})"/)?.[1] ?? '';
   const avatar = clean.match(/"avatar":"(https:[^"]+?)"/)?.[1] ?? '';
   const title = clean.match(/"title":"([^"]{1,200})"/)?.[1] ?? '';
-  if (!nickname && !title) return null;
-  return { nickname, avatar, title };
+  // 主播信息在页面内联 JSON 里是转义过的（\"anchor\":{\"id_str\":…），去掉转义再找 anchor 块
+  const anchor = clean.replace(/\\"/g, '"').match(/"anchor":\{[^{}]{0,600}/)?.[0] ?? '';
+  const uid = anchor.match(/"id_str":"(\d+)"/)?.[1] ?? '';
+  const secUid = anchor.match(/"sec_uid":"([^"]+)"/)?.[1] ?? '';
+  if (!nickname && !title && !uid) return null;
+  return { nickname, avatar, title, uid, secUid };
 }
 
 /**

@@ -44,28 +44,23 @@ ttwid=xxxxxxxx; sessionid_ss=xxxxxxxx; sid_tt=xxxxxxxx; __ac_nonce=xxxxxxxx; ...
 
 ## 如何配置
 
-有三种方式，效果相同，按场景选择：
+有两种方式，效果相同，按场景选择：
 
-### 方式一：控制台填写（推荐）
+### 方式一：控制台网页登录（推荐）
 
 服务启动后、连接房间前，在控制台操作：
 
 1. 打开 `http://localhost:8757`
-2. 左侧栏「登录 Cookie」面板 → 文本框粘贴 Cookie
-3. 点击「保存」
+2. 左侧栏「登录 Cookie」面板 → 点击「网页登录」
+3. 在弹出的抖音窗口中完成登录，Cookie 会自动保存
 4. 状态标签变为 **已设置（登录态 ✓）** 即可
 5. 连接直播间，礼物事件将正常出现
 
-> 支持运行时随时更新：修改 Cookie 后保存，新连接的房间会使用新 Cookie；已连接的房间需断开重连生效。
+> 支持运行时随时更新：重新登录后，新连接的房间会使用新 Cookie；已连接的房间需断开重连生效。
 
-### 方式二：API 调用
+> 查看 / 清除 Cookie 也可以通过 API：
 
 ```bash
-# 设置 Cookie
-curl -X POST http://localhost:8757/api/cookie \
-  -H 'Content-Type: application/json' \
-  -d '{"cookie":"ttwid=xxx; sessionid_ss=xxx; sid_tt=xxx; ..."}'
-
 # 查看状态（不返回 Cookie 值）
 curl http://localhost:8757/api/cookie
 # → {"set":true,"hasLogin":true,"keys":["ttwid","sessionid_ss","sid_tt",...]}
@@ -74,7 +69,7 @@ curl http://localhost:8757/api/cookie
 curl -X DELETE http://localhost:8757/api/cookie
 ```
 
-### 方式三：环境变量（适合 Docker / 无界面部署）
+### 方式二：环境变量（适合 Docker / 无界面部署）
 
 启动前设置 `DYHUB_COOKIE` 环境变量：
 
@@ -90,7 +85,7 @@ environment:
 docker run -d -p 8757:8757 -e DYHUB_COOKIE="ttwid=xxx; sessionid_ss=xxx" dyhub
 ```
 
-> 环境变量在启动时读入。如需运行时更新，用方式一或方式二。
+> 环境变量在启动时读入。如需运行时更新，用方式一。
 
 ## 两种采集内核的注入方式
 
@@ -99,7 +94,7 @@ docker run -d -p 8757:8757 -e DYHUB_COOKIE="ttwid=xxx; sessionid_ss=xxx" dyhub
 | **轻量内核**（`DYHUB_COLLECTOR=lightweight`） | Cookie 拼入 wss 握手 HTTP 头，webcast 服务端据此判断登录态并推送礼物事件 |
 | **浏览器内核**（`DYHUB_COLLECTOR=browser`，默认） | Cookie 通过 `context.addCookies` 注入浏览器上下文，页面以登录态加载，页面内 webcast wss 自动携带登录 Cookie |
 
-两种内核均支持上述三种配置方式。
+两种内核均支持上述两种配置方式。
 
 ## 常见问题
 

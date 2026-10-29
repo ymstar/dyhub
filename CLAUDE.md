@@ -44,6 +44,7 @@ docker compose up -d --build   # 一键启动（内置 Chromium + 中文字体�
   - `roomMeta.ts` — 主播信息解析，从直播间 HTML 提取昵称/头像/标题，仅供展示，失败不影响采集。
 - **`src/pipeline/`** — 事件管道。
   - `normalizer.ts` — 翻译层：按 `method` 匹配 `WebcastChatMessage` / `WebcastGiftMessage` 等，映射为统一事件。未识别消息透传为 `unknown` 类型。**抖音改协议只影响此文件及解码器**。
+    - 弹幕富文本 `ChatMessage.rtfContentV2`（字段 41，`Text` → `TextPiece` → 图片 / @用户 / 文字）标准化为 `data.parts`；`WebcastEmojiChatMessage`（会员表情 / 大表情）也下发为 `chat`，带 `sticker: true`。字段号对照抖音网页端 live-schema 与 TikTok 解码器，旧 proto 里的 `rtfContent = 22` 已不适用。
   - `dedupe.ts` — 基于事件 id 的滑动窗口去重（容量 200k）。
   - `eventBus.ts` — 发布/订阅总线，解耦采集与消费。订阅者带 `EventFilter`（按 roomId / type 过滤）。
 - **`src/dispatch/`** — 分发层。三个分发器各自订阅 EventBus：
@@ -58,8 +59,10 @@ docker compose up -d --build   # 一键启动（内置 Chromium + 中文字体�
 - **roomId 统一为 web_rid**（用户可识别的房间短号），非消息体内的内部 webcast roomId。避免房间管理与订阅过滤失配。事件 `roomId` 取自采集会话的 `meta.roomId`，不取消息体。
 - **两种内核产出相同的 `RawProtoMessage`**，管道与分发层无感知。切换内核只需改 `DYHUB_COLLECTOR` 环境变量。
 - **轻量内核共享 cookie**（模块级 `sharedJar`，TTL 15min），多房间并发只跑一次 cookie 链，避免高频请求触发风控。`DYHUB_COOKIE` 环境变量可直接注入浏览器复制的 cookie，绕过 cookie 链请求（解决容器 IP 被风控）。
-- **Cookie 持久化**（`cookieStore.ts`）：Dashboard 勾选"记住我"后 cookie 写入 `data/cookie.json`，Docker 重新部署后自动恢复，直到过期或手动清除。启动时 `DYHUB_COOKIE` 环境变量优先于磁盘文件。解析器同时支持 Cookie 请求头（`k=v; k=v`）与 Set-Cookie 响应头（含 `Expires`/`Max-Age`）两种格式，后者可提取并展示过期时间。
+- **Cookie 持久化**（`cookieStore.ts`）：Dashboard 网页登录成功后 cookie 自动写入 `data/cookie.json`，Docker 重新部署后自动恢复，直到过期或手动清除。启动时 `DYHUB_COOKIE` 环境变量优先于磁盘文件。解析器同时支持 Cookie 请求头（`k=v; k=v`）与 Set-Cookie 响应头（含 `Expires`/`Max-Age`）两种格式，后者可提取并展示过期时间。
 - **每房间独立 Cookie**（`cookieStore.ts`）：全局 cookie 是默认/回退，每个房间可设置独立 cookie（`data/room-cookies/{roomId}.json` 持久化）。轻量内核有独立 cookie 的会话维护私有 jar，不走 `sharedJar`；浏览器内核为有独立 cookie 的房间创建独立 `BrowserContext`。解决抖音同一账号同一时间只能在一个直播间的问题（多账号多房间礼物信息互不干扰）。
+- **发送弹幕**（`liveSession.ts`）：浏览器内核支持以登录账号发弹幕（`POST /api/rooms/:roomId/chat`），在页面输入框输入并回车，由页面自己签名与请求。同一房间排队发送，间隔见 `DYHUB_CHAT_INTERVAL_MS`。
+- **直播流地址与截图**（`browser.ts` + `liveSession.ts`）：浏览器内核捕获播放器拉流地址（`GET /api/rooms/:roomId/stream`）和截取直播画面（`GET /api/rooms/:roomId/screenshot`），仅供展示与外部拉流。
 - **ESM 项目**（`"type": "module"`），所有内部 import 用 `.js` 扩展名（NodeNext moduleResolution 要求）。TypeScript 7 + Node ≥ 20。
 - **`long` 库处理 protobuf 64 位整数**，`longToStr()` 工具函数避免精度丢失，所有 id 字段用字符串。
 
@@ -73,6 +76,7 @@ docker compose up -d --build   # 一键启动（内置 Chromium + 中文字体�
 | `DYHUB_HEADED` | `1`/`true` 开有头浏览器（调试） | 无头 |
 | `DYHUB_COLLECTOR` | `browser`（默认）/ `lightweight` | `browser` |
 | `DYHUB_COOKIE` | 轻量内核直用 cookie（`ttwid=…; __ac_nonce=…`） | 自动获取 |
+| `DYHUB_CHAT_INTERVAL_MS` | 同房间两条弹幕发送的最小间隔（防风控） | `3000` |
 
 ### 扩展点
 

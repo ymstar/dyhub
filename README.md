@@ -148,6 +148,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用） | 无（默认无头） |
 | `DYHUB_COLLECTOR` | 采集内核：`browser`（默认，浏览器 + CDP，最稳抗风控）/ `lightweight`（纯代码直连，轻量快速） | `browser` |
 | `DYHUB_COOKIE` | 浏览器复制的 Cookie（含 `sessionid_ss` 登录态），用于**获取礼物事件**与**绕过容器 IP 风控**；也可启动后在控制台填写 → 详见 [Cookie 配置指南](docs/cookie-guide.md) | 无（游客态） |
+| `DYHUB_CHAT_INTERVAL_MS` | `POST /api/rooms/:roomId/chat` 同一房间两条弹幕的最小间隔（毫秒） | `3000` |
 
 ---
 
@@ -167,7 +168,10 @@ curl -X POST http://localhost:8757/api/rooms/connect \
     "id": "101652211600",
     "nickname": "田💕心",
     "avatar": "https://p3.douyinpic.com/aweme/100x100/...",
-    "secUid": "MS4wLjAB..."
+    "secUid": "MS4wLjAB...",
+    "payLevel": 23,
+    "fansClub": { "name": "甄选", "level": 12, "status": 1, "anchorId": "..." },
+    "badges": ["V年", "粉丝团等级12级勋章"]
   },
   "data": { "content": "劲道牛肉丸，3袋立享88折！" }
 }
@@ -175,11 +179,15 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 
 > `roomId` 统一为用户连接的房间号（web_rid），与房间管理 / 订阅过滤一致。
 
+> **用户等级**：`user.payLevel` 为财富等级（抖音 `User.payGrade.level`），`user.fansClub` 为粉丝团名称与等级（`User.fansClub.data`），所有带用户的事件都会携带；消息里没有时字段缺省（未加入粉丝团则无 `fansClub`）。`fansClub` 一般是本直播间主播的粉丝团，可用 `anchorId` 核对。
+
+> **勋章**：`user.badges` 是名字旁的勋章，解码自 `User` 的勋章列表（21 是旧列表，61 是新列表）。直播间会员只在 61 里（imageType 59，文字只是「勋章」），按图片名记为月会员 `V`（`subscribe_new`）或年会员 `V年`（`subscribe_new_yearly`）；其余勋章用勋章文字（`粉丝团等级14级勋章`、`荣誉等级27级勋章`、`房管勋章`）。没有勋章时字段缺省。
+
 **事件类型**：
 
 | type | 含义 | data 关键字段 |
 | --- | --- | --- |
-| `chat` | 弹幕 | `content` |
+| `chat` | 弹幕（含会员表情 / 大表情） | `content` / `parts` / `sticker` |
 | `gift` | 礼物 | `giftName` / `diamondCount` / `repeatCount` / `comboCount` / `groupCount` / `repeatEnd` / `groupId` / `combo`（需登录态 Cookie，见 [Cookie 指南](docs/cookie-guide.md)） |
 | `member` | 进场 | `memberCount` |
 | `like` | 点赞 | `count` / `total` |
@@ -187,6 +195,8 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `room` | 直播间统计 | `total`（在线）/ `popularity` / `totalUser` |
 | `roomStatus` | 房间状态变更 | `status`（connecting/live/closed/error/stopped）/ `message`（错误信息） |
 | `unknown` | 未识别消息透传 | `method` |
+
+> **表情**：`content` 是原始文本，常见表情是 `[比心]` 这样的方括号占位符。抖音下发富文本时（粉丝团 / 会员表情、@某人），`parts` 按顺序给出每一段：`{ "type": "text", "text" }`、`{ "type": "emote", "url", "name" }` 或 `{ "type": "mention", "text": "@昵称", "userId" }`，渲染时优先用 `parts`；纯表情弹幕的 `content` 可能为空。整条消息是一张大表情（`WebcastEmojiChatMessage`）时同样以 `chat` 下发，`sticker: true`，`parts` 只有那一张图，`content` 为抖音给的文字替代。表情图在抖音 CDN 上，`<img>` 需加 `referrerpolicy="no-referrer"`。
 
 > **礼物计数**：抖音对同一次送礼会推送多条 `WebcastGiftMessage`（连击进度 + 连击结束时一条 `repeatEnd: true` 的收尾消息），它们 `msgId` 不同、`groupId` 相同，因此不会被去重。按 `giftId + groupId` 合并、取 `repeatCount` 的增量计数，并忽略已见过的分组的收尾消息即可避免重复。
 
@@ -245,8 +255,11 @@ curl -X POST http://localhost:8757/api/webhooks \
 | DELETE | `/api/rooms/:roomId` | 彻底删除房间 |
 | GET | `/api/rooms/:roomId` | 单房间详情 |
 | GET/PUT/DELETE | `/api/rooms/:roomId/cookie` | 每房间独立 Cookie（查看 / 设置 / 清除），多账号多房间互不干扰 |
+| POST | `/api/rooms/:roomId/chat` | 以登录账号发一条弹幕 `{text}`，返回 `{ok, echoed}`（需浏览器内核 + 网页登录；同一房间排队发送，间隔见 `DYHUB_CHAT_INTERVAL_MS`） |
+| GET | `/api/rooms/:roomId/stream` | 直播间播放器正在拉的流地址 `{url}`（FLV / HLS，带签名，可直接给 ffmpeg；需浏览器内核） |
+| GET | `/api/rooms/:roomId/screenshot` | 直播画面截图（`image/jpeg`，只截播放器；需浏览器内核） |
 | GET | `/api/stats` | 全局统计（WS 客户端数 / 房间 / 事件量） |
-| GET/POST/DELETE | `/api/cookie` | 登录 Cookie 管理（查看状态 / 设置 / 清除），详见 [Cookie 配置指南](docs/cookie-guide.md) |
+| GET/DELETE | `/api/cookie` | 登录 Cookie 管理（查看状态 / 清除），详见 [Cookie 配置指南](docs/cookie-guide.md) |
 | GET | `/api/events?types=chat,gift&roomId=xxx` | SSE 实时事件流 |
 | GET/POST/DELETE | `/api/webhooks` | Webhook 订阅管理 |
 

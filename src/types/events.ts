@@ -31,6 +31,17 @@ export interface DanmakuUser {
   nickname: string;  // 昵称
   avatar?: string;   // 头像 URL（列表中的首个）
   secUid?: string;   // 安全 uid
+  payLevel?: number; // 财富等级（抖音消费等级）；消息未携带时缺省
+  fansClub?: DanmakuFansClub; // 粉丝团；未加入时缺省
+  badges?: string[]; // 名字旁的勋章：直播间会员为 V（月）/ V年（年），其余用勋章文字（粉丝团等级14级勋章）；没有时缺省
+}
+
+/** 用户所在粉丝团（抖音 User.fansClub.data） */
+export interface DanmakuFansClub {
+  name: string;      // 粉丝团名称
+  level: number;     // 粉丝团等级
+  status?: number;   // 抖音 userFansClubStatus（原样透传，推测为灯牌是否点亮）
+  anchorId?: string; // 粉丝团所属主播 uid；一般为本直播间主播，可据此核对
 }
 
 /** 基础事件 */
@@ -45,9 +56,20 @@ export interface BaseDanmakuEvent {
   rawMethod?: string;  // 原始平台消息方法名（调试用）
 }
 
+/** 弹幕富文本的一段：文字、表情图片（含粉丝团 / 会员表情），或 @某人 */
+export type ChatPart =
+  | { type: 'text'; text: string }
+  | { type: 'emote'; url: string; name?: string; width?: number; height?: number }
+  | { type: 'mention'; text: string; userId?: string };
+
 export interface ChatEvent extends BaseDanmakuEvent {
   type: 'chat';
-  data: { content: string };
+  data: {
+    content: string;      // 原始文本（[比心] 等表情为方括号占位符）；纯表情消息可能为空
+    parts?: ChatPart[];   // 富文本分段，抖音下发了才有；渲染时优先于 content
+    sticker?: boolean;    // 整条消息是一张会员表情 / 大表情（WebcastEmojiChatMessage）
+    emojiId?: string;     // 大表情 id（sticker 时）
+  };
 }
 
 export interface GiftEvent extends BaseDanmakuEvent {

@@ -5,7 +5,7 @@
  * 轻量内核将其拼入 wss 握手头与 HTTP 请求；浏览器内核将其注入 BrowserContext。
  * 含 sessionid_ss / sid_tt 等登录 cookie 时，webcast 服务端会推送礼物事件。
  *
- * 持久化：勾选"记住我"后，cookie 写入 data/cookie.json，Docker 重新部署后自动恢复，
+ * 持久化：网页登录成功后，cookie 写入 data/cookie.json，Docker 重新部署后自动恢复，
  * 直到 cookie 过期或用户手动清除。支持从 Cookie 请求头（k=v; k=v）和 Set-Cookie 响应头
  * （含 Expires/Max-Age 属性）两种格式解析过期时间。
  */
@@ -136,19 +136,16 @@ if (envCookie) {
   loadFromDisk();
 }
 
-/** 设置 cookie（覆盖）。persist=true 时写入磁盘，false 时删除磁盘文件 */
-export function setCookie(str: string, opts?: { persist?: boolean }): void {
-  const { store: parsed, expiresAt: exp } = parseCookieStr(str);
+/**
+ * 设置 cookie（覆盖）并写入磁盘。
+ * expiresAt 用于调用方已知过期时间的场景（如扫码登录从浏览器读到的 cookie）。
+ */
+export function setCookie(str: string, opts?: { expiresAt?: number | null }): void {
+  const { store: parsed, expiresAt: parsedExp } = parseCookieStr(str);
+  const exp = opts?.expiresAt ?? parsedExp;
   store = parsed;
   expiresAt = exp;
-  const persist = opts?.persist ?? false;
-  if (persist) {
-    saveToDisk(str, exp);
-  } else {
-    deleteFromDisk();
-    savedAt = null;
-    persisted = false;
-  }
+  saveToDisk(str, exp);
 }
 
 /** 清空 cookie（同时删除磁盘文件） */

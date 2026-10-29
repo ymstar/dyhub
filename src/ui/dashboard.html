@@ -34,12 +34,14 @@
   .view-monitor { flex-direction: row; }
   .main { flex: 1; display: flex; min-height: 0; }
   .side { width: 320px; min-height: 0; border-right: 1px solid var(--border); background: var(--card); padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+  .side-divider { flex: 0 0 auto; height: 0; border: 0; border-top: 1px solid var(--border); margin: 0; }
   .panel-title { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
   .room-add { display: flex; gap: 8px; }
   .room-add input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
   .room-add input:focus { border-color: var(--accent-dark); }
   button { padding: 8px 14px; border: none; border-radius: 8px; background: var(--accent); color: #123; font-size: 13px; cursor: pointer; font-weight: 500; }
   button:hover { filter: brightness(0.96); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
   button.danger { background: #f5d0cc; color: #a33; }
   button.ghost { background: #eee; color: var(--text); }
   .room-list { display: flex; flex-direction: column; gap: 8px; }
@@ -89,6 +91,8 @@
   .ev .what { flex: 1; word-break: break-word; }
   .emoji-img { display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin: 0 1px; border-radius: 3px; object-fit: cover; }
   .test-feed .emoji-img { width: 16px; height: 16px; }
+  .emoji-img.sticker { width: 48px; height: 48px; border-radius: 6px; object-fit: contain; }
+  .test-feed .emoji-img.sticker { width: 32px; height: 32px; }
   .ev .tm { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
   .empty { color: var(--muted); text-align: center; padding: 40px; font-size: 13px; }
   footer { flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--card); padding: 8px 20px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
@@ -180,17 +184,18 @@
     <aside class="side">
       <div>
         <div class="panel-title">登录 Cookie <span id="cookieStatus" style="font-weight:400;font-size:11px;color:var(--muted);">未设置</span></div>
-        <textarea id="cookieInput" placeholder="浏览器 F12 → Network → 请求头 → Cookie，粘贴整行" style="width:100%;height:56px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:11px;resize:vertical;outline:none;font-family:'SF Mono',Menlo,monospace;line-height:1.4;"></textarea>
         <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-          <button id="btnSaveCookie">保存</button>
+          <button id="btnWebLogin">网页登录</button>
           <button id="btnClearCookie" class="ghost">清除</button>
-          <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:auto;color:var(--muted);">
-            <input type="checkbox" id="cookieRemember" style="accent-color:var(--accent-dark);" /> 记住我
-          </label>
+        </div>
+        <div id="loginBox" style="display:none;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;align-items:center;gap:8px;">
+          <div id="loginMsg" style="font-size:12px;line-height:1.5;flex:1;"></div>
+          <button id="btnLoginCancel" class="ghost" style="padding:4px 10px;font-size:12px;">取消</button>
         </div>
         <div id="cookieExpiry" style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;display:none;"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">含 <code>sessionid_ss</code> 等登录 cookie 可获取礼物事件</div>
+        <div id="cookieHint" style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">不登录无法接收礼物事件</div>
       </div>
+      <hr class="side-divider" />
       <div>
         <div class="panel-title">连接直播间</div>
         <div class="room-add">
@@ -425,7 +430,7 @@ curl -X POST http://${base}/api/webhooks \\
     const giftIcon = (ev.type === 'gift' && ev.data?.giftIcon)
       ? `<img src="${escapeHtml(ev.data.giftIcon)}" referrerpolicy="no-referrer" style="width:18px;height:18px;vertical-align:middle;border-radius:3px;object-fit:cover;flex:0 0 auto;" onerror="this.style.display='none'" /> `
       : '';
-    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}${giftIcon}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${ev.type === 'chat' ? renderChatContent(ev.data?.content) : escapeHtml(String(what))}</span>`;
+    line.innerHTML = `<span style="color:#999;flex:0 0 auto">${t}</span> <span class="ty">[${label[ev.type] || ev.type}]</span>${av}${giftIcon}<span style="color:#4a90b8">${escapeHtml(who)}</span> <span>${ev.type === 'chat' ? renderChatContent(ev.data) : escapeHtml(String(what))}</span>`;
     feed.appendChild(line);
     while (feed.children.length > 300) feed.removeChild(feed.firstChild);
     feed.scrollTop = feed.scrollHeight;
@@ -438,9 +443,22 @@ curl -X POST http://${base}/api/webhooks \\
     return '';
   }
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-  // 弹幕表情渲染：将 [表情名] 占位符替换为抖音 CDN 表情图
+  // 弹幕渲染：有富文本分段（data.parts，含粉丝团 / 会员表情图）时逐段渲染，
+  // 否则把 content 里的 [表情名] 占位符替换为抖音 CDN 表情图。
   // 参考: https://github.com/skmcj/dycast  — 用 split(/(\[.*?])/) 切分，逐段查表
-  function renderChatContent(text) {
+  function renderChatContent(data) {
+    if (Array.isArray(data?.parts) && data.parts.length) {
+      return data.parts.map((p) => {
+        if (p.type === 'emote') {
+          const name = escapeHtml(p.name || '[表情]');
+          return `<img class="emoji-img${data.sticker ? ' sticker' : ''}" src="${escapeHtml(p.url)}" alt="${name}" title="${name}" referrerpolicy="no-referrer" loading="lazy" />`;
+        }
+        return escapeHtml(p.text || '');
+      }).join('');
+    }
+    return renderEmojiText(data?.content);
+  }
+  function renderEmojiText(text) {
     if (!text) return '';
     const parts = String(text).split(/(\[.*?])/);
     let html = '';
@@ -513,25 +531,70 @@ curl -X POST http://${base}/api/webhooks \\
     };
   }
 
+  // 礼物合并（仅影响本页展示）：抖音对同一次送礼会推送多条消息（连击进度 + repeatEnd 收尾），
+  // 它们共享 giftId + groupId。同一组先缓存，收到收尾消息、或 3 秒内没有新消息时，
+  // 才按最终数量显示一行；已显示过的组在 60 秒内再来消息，只显示新增数量（迟到的收尾消息直接忽略）。
+  // WS / SSE / Webhook 订阅者不受影响，仍收到全部原始消息。
+  const pendingGifts = new Map(); // key -> { ev, count, timer }
+  const shownGifts = new Map(); //   key -> { count, at }，已显示的数量
+  const GIFT_DEBOUNCE_MS = 3000;
+  const GIFT_SHOWN_TTL_MS = 60_000;
+  const giftCount = (ev) => Math.max(1, ev.data.repeatCount || ev.data.comboCount || 0);
+  function giftWhat(ev, cnt) {
+    const icon = ev.data.giftIcon
+      ? `<img src="${escapeHtml(ev.data.giftIcon)}" referrerpolicy="no-referrer" style="width:24px;height:24px;vertical-align:middle;border-radius:4px;object-fit:cover;" onerror="this.style.display='none'" /> `
+      : '🎁 ';
+    return `${icon}送出 <b>${escapeHtml(ev.data.giftName)}</b> ×${cnt}${ev.data.diamondCount ? `（${ev.data.diamondCount}钻）` : ''}`;
+  }
+  function flushGift(key) {
+    const g = pendingGifts.get(key);
+    if (!g) return;
+    clearTimeout(g.timer);
+    pendingGifts.delete(key);
+    const shown = shownGifts.get(key)?.count ?? 0;
+    shownGifts.set(key, { count: g.count, at: Date.now() });
+    render(g.ev, giftWhat(g.ev, g.count - shown));
+  }
+  /** 缓存同组礼物；返回 true 表示已接管（稍后显示），false 表示无法合并、应立即显示 */
+  function bufferGift(ev) {
+    if (!ev.data.groupId) return false; // 旧版本没有 groupId，无法合并
+    const key = `${ev.roomId}-${ev.data.giftId}-${ev.data.groupId}`;
+    const now = Date.now();
+    for (const [k, v] of shownGifts) if (now - v.at > GIFT_SHOWN_TTL_MS) shownGifts.delete(k);
+    // 已显示过且数量没有增加：迟到的收尾 / 重复消息，忽略
+    const shown = shownGifts.get(key);
+    if (shown && !pendingGifts.has(key) && giftCount(ev) <= shown.count) return true;
+    const g = pendingGifts.get(key);
+    if (g) {
+      clearTimeout(g.timer);
+      g.count = Math.max(g.count, giftCount(ev));
+    } else {
+      // 保留第一条消息（显示其时间），数量取本组最大值
+      pendingGifts.set(key, { ev, count: giftCount(ev), timer: null });
+    }
+    if (ev.data.repeatEnd) flushGift(key);
+    else pendingGifts.get(key).timer = setTimeout(() => flushGift(key), GIFT_DEBOUNCE_MS);
+    return true;
+  }
+
   function append(ev) {
     // 房间过滤：只看当前选中的房间
     if (currentRoom !== 'all' && String(ev.roomId) !== String(currentRoom)) return;
     events++; rateCounter++;
     $('stEvents').textContent = events.toLocaleString();
+    if (ev.type === 'gift' && bufferGift(ev)) return;
+    render(ev);
+  }
+
+  /** 把一条事件渲染到实时流；what 可覆盖默认文案（礼物合并后传入最终数量） */
+  function render(ev, whatOverride) {
     const feed = $('feed');
     const empty = $('empty'); if (empty) empty.remove();
     let who = '', what = '';
     if (ev.user) who = ev.user.nickname || ev.user.id;
     switch (ev.type) {
-      case 'chat': what = renderChatContent(ev.data.content); break;
-      case 'gift': {
-        const cnt = ev.data.comboCount || ev.data.repeatCount || 1;
-        const icon = ev.data.giftIcon
-          ? `<img src="${escapeHtml(ev.data.giftIcon)}" referrerpolicy="no-referrer" style="width:24px;height:24px;vertical-align:middle;border-radius:4px;object-fit:cover;" onerror="this.style.display='none'" /> `
-          : '🎁 ';
-        what = `${icon}送出 <b>${ev.data.giftName}</b> ×${cnt}${ev.data.diamondCount ? `（${ev.data.diamondCount}钻）` : ''}`;
-        break;
-      }
+      case 'chat': what = renderChatContent(ev.data); break;
+      case 'gift': what = giftWhat(ev, giftCount(ev)); break;
       case 'member': what = '进入直播间'; break;
       case 'follow': what = '关注了主播'; break;
       case 'like': what = `点赞 ${ev.data.count || 1}`; break;
@@ -539,6 +602,7 @@ curl -X POST http://${base}/api/webhooks \\
       case 'roomStatus': what = `房间状态: ${({ live: '直播中', connecting: '连接中', closed: '已关闭', error: '连接失败', stopped: '已停止' })[ev.data.status] || ev.data.status}${ev.data.message ? `（${ev.data.message}）` : ''}`; break;
       default: what = ev.data.method || '未知消息';
     }
+    if (whatOverride !== undefined) what = whatOverride;
     const el = document.createElement('div');
     el.className = 'ev';
     const tm = new Date(ev.receivedAt || Date.now()).toLocaleTimeString('zh-CN', { hour12: false });
@@ -779,15 +843,23 @@ curl -X POST http://${base}/api/webhooks \\
   document.querySelectorAll('#filters input').forEach(i => i.addEventListener('change', () => { if (ws) ws.close(); }));
   setInterval(() => { $('stRate').textContent = (rateCounter * 60 / 30).toFixed(0); rateCounter = 0; refresh(); }, 30000);
   // ---- Cookie 管理 ----
+  // 已登录或登录窗口打开中时禁用「网页登录」（换号需先清除）
+  let loggedIn = false, loginInProgress = false;
+  function syncLoginBtn() {
+    const btn = $('btnWebLogin');
+    btn.textContent = loginInProgress ? '登录中…' : '网页登录';
+    btn.disabled = loggedIn || loginInProgress;
+    btn.title = loggedIn && !loginInProgress ? '已登录，如需切换账号请先清除' : '';
+  }
   function updateCookieStatus(s) {
+    loggedIn = !!s.hasLogin;
+    syncLoginBtn();
     const el = $('cookieStatus');
     const ex = $('cookieExpiry');
-    const cb = $('cookieRemember');
+    $('cookieHint').style.display = s.hasLogin ? 'none' : 'block';
     if (!s.set) { el.textContent = '未设置'; el.style.color = 'var(--muted)'; }
     else if (s.hasLogin) { el.textContent = '已设置（登录态 ✓）'; el.style.color = '#2d7a4c'; }
     else { el.textContent = '已设置（游客）'; el.style.color = '#a8781a'; }
-    // "记住我"复选框：已持久化时自动勾选
-    cb.checked = !!s.persisted;
     // 过期时间展示
     if (!s.set) { ex.style.display = 'none'; return; }
     if (s.expiresAt) {
@@ -814,20 +886,44 @@ curl -X POST http://${base}/api/webhooks \\
   async function refreshCookieStatus() {
     try { updateCookieStatus(await (await fetch('/api/cookie')).json()); } catch {}
   }
-  $('btnSaveCookie').onclick = async () => {
-    const v = $('cookieInput').value.trim();
-    if (!v) { alert('请先粘贴 cookie'); return; }
-    const persist = $('cookieRemember').checked;
-    const r = await fetch('/api/cookie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookie: v, persist }) });
-    const j = await r.json();
-    if (!r.ok) { alert(j.error || '保存失败'); return; }
-    updateCookieStatus(j);
-    $('cookieInput').value = '';
-  };
   $('btnClearCookie').onclick = async () => {
     await fetch('/api/cookie', { method: 'DELETE' });
     updateCookieStatus({ set: false, hasLogin: false, keys: [], expiresAt: null, savedAt: null, persisted: false });
   };
+  // ---- 网页登录（弹出抖音窗口）----
+  let loginTimer = null;
+  const loginActive = (st) => st.status === 'opening' || st.status === 'waiting';
+  function showLogin(st) {
+    const box = $('loginBox'), msg = $('loginMsg');
+    box.style.display = st.message ? 'flex' : 'none';
+    msg.textContent = st.message || '';
+    msg.style.color = st.status === 'error' || st.status === 'expired' ? '#a33' : st.status === 'success' ? '#2d7a4c' : 'var(--text)';
+    const active = loginActive(st);
+    $('btnLoginCancel').textContent = active ? '取消' : '关闭';
+    loginInProgress = active;
+    syncLoginBtn();
+    if (!active) { clearInterval(loginTimer); loginTimer = null; }
+    if (st.status === 'success') refreshCookieStatus();
+  }
+  async function pollLogin() {
+    try { showLogin(await (await fetch('/api/cookie/login')).json()); } catch {}
+  }
+  $('btnWebLogin').onclick = async () => {
+    showLogin({ status: 'opening', message: '正在打开抖音登录窗口…' });
+    const r = await fetch('/api/cookie/login', { method: 'POST' });
+    showLogin(await r.json());
+    clearInterval(loginTimer);
+    loginTimer = setInterval(pollLogin, 1500);
+  };
+  $('btnLoginCancel').onclick = async () => {
+    const st = await (await fetch('/api/cookie/login')).json();
+    if (loginActive(st)) showLogin(await (await fetch('/api/cookie/login', { method: 'DELETE' })).json());
+    else $('loginBox').style.display = 'none';
+  };
+  // 页面打开时若有进行中的登录（例如刷新了页面），继续展示并轮询
+  fetch('/api/cookie/login').then((r) => r.json()).then((st) => {
+    if (loginActive(st)) { showLogin(st); loginTimer = setInterval(pollLogin, 1500); }
+  }).catch(() => {});
   refreshCookieStatus();
 
   connectWS();
