@@ -6,7 +6,9 @@
  */
 
 import type {
+  ChatPart,
   DanmakuEvent,
+  DanmakuFansClub,
   DanmakuUser,
   GiftEvent,
   ChatEvent,
@@ -23,7 +25,85 @@ function toUser(body: any): DanmakuUser | undefined {
     nickname: u.nickName || '',
     avatar: extractAvatar(u),
     secUid: u.secUid || undefined,
+    payLevel: u.payGrade ? Number(longToStr(u.payGrade.level) || 0) : undefined,
+    fansClub: toFansClub(u.fansClub?.data),
+    badges: toBadges(u.newBadgeImageList?.length ? u.newBadgeImageList : u.badgeImageList),
   };
+}
+
+/** 直播间会员勋章的 imageType；文字只是「勋章」，月 / 年会员靠图片名区分（subscribe_new / subscribe_new_yearly）。 */
+const SUBSCRIBE_BADGE = 59;
+
+/**
+ * 名字旁的勋章：直播间会员记为 V 或 V年，其余用勋章文字（content.alternativeText）；
+ * 没有文字的、只叫「勋章」的不输出。一个都没有时返回 undefined。
+ */
+function toBadges(images: any[] | undefined): string[] | undefined {
+  const badges: string[] = [];
+  for (const image of images ?? []) {
+    const url = firstUrl(image?.urlList) ?? String(image?.uri ?? '');
+    if (Number(image?.imageType) === SUBSCRIBE_BADGE || /\/subscribe_/.test(url)) {
+      badges.push(/yearly/.test(url) ? 'V年' : 'V');
+      continue;
+    }
+    const text = String(image?.content?.alternativeText ?? '').trim();
+    if (text && text !== '勋章') badges.push(text);
+  }
+  const unique = [...new Set(badges)];
+  return unique.length ? unique : undefined;
+}
+
+/** 粉丝团：名称为空且等级为 0 视为未加入，不输出。 */
+function toFansClub(d: any): DanmakuFansClub | undefined {
+  if (!d) return undefined;
+  const name = String(d.clubName ?? '');
+  const level = Number(d.level ?? 0);
+  if (!name && !level) return undefined;
+  return {
+    name,
+    level,
+    status: d.userFansClubStatus ? Number(d.userFansClubStatus) : undefined,
+    anchorId: longToStr(d.anchorId) || undefined,
+  };
+}
+
+/** URL 列表中首个 http(s) 地址 */
+function firstUrl(urls: unknown): string | undefined {
+  if (!Array.isArray(urls)) return undefined;
+  return urls.find((u): u is string => typeof u === 'string' && u.startsWith('http'));
+}
+
+/**
+ * 富文本（webcast.data.Text）→ 分段：图片段为表情（名称取 Image.content），@用户段为 mention，
+ * 其余取文字。没有可用分段时返回 undefined，消费端回退到 content。
+ */
+function toParts(text: any): ChatPart[] | undefined {
+  const parts: ChatPart[] = [];
+  for (const piece of text?.pieces ?? []) {
+    const image = piece.imageValue?.image;
+    const url = firstUrl(image?.urlList);
+    if (url) {
+      parts.push({
+        type: 'emote',
+        url,
+        name: image.content?.name || image.content?.alternativeText || undefined,
+        width: Number(longToStr(image.width) || 0) || undefined,
+        height: Number(longToStr(image.height) || 0) || undefined,
+      });
+      continue;
+    }
+    const user = piece.userValue?.user;
+    if (user) {
+      parts.push({
+        type: 'mention',
+        text: `@${user.nickName || ''}`,
+        userId: user.idStr || longToStr(user.id) || undefined,
+      });
+      continue;
+    }
+    if (piece.stringValue) parts.push({ type: 'text', text: String(piece.stringValue) });
+  }
+  return parts.length ? parts : undefined;
 }
 
 /**
@@ -89,7 +169,26 @@ export function normalize(msg: RawProtoMessage, meta: { roomId: string }): Danma
       const ev: ChatEvent = {
         ...base,
         type: 'chat',
-        data: { content: String(body.content ?? '') },
+        data: {
+          content: String(body.content ?? ''),
+          parts: toParts(body.rtfContentV2) ?? toParts(body.rtfContent),
+        },
+      };
+      return ev;
+    }
+    case 'WebcastEmojiChatMessage': {
+      // 会员表情 / 大表情：以 chat 事件下发，parts 只有这一张图，content 为抖音给的文字替代。
+      const parts = toParts(body.emojiContent);
+      const name = parts?.find((p) => p.type === 'emote')?.name;
+      const ev: ChatEvent = {
+        ...base,
+        type: 'chat',
+        data: {
+          content: String(body.defaultContent || name || ''),
+          parts,
+          sticker: true,
+          emojiId: longToStr(body.emojiId) || undefined,
+        },
       };
       return ev;
     }
