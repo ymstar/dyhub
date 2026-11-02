@@ -17,6 +17,9 @@ data/
 # spike 为本地研究脚本（含真实抓包参数），不入库
 spike/
 
+# CodeGraph 本地索引
+.codegraph/
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db

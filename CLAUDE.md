@@ -42,6 +42,7 @@ docker compose up -d --build   # 一键启动（内置 Chromium + 中文字体�
   - `browser.ts` + `liveSession.ts` — 浏览器内核（默认）：`BrowserManager` 启动系统 Chrome（playwright-core），每房间开一个 page，通过 CDP `Network.webSocketFrameReceived` 旁观弹幕 wss 帧。无头模式需点击手势触发播放器初始化。
   - `lightweightSession.ts` — 轻量内核：纯代码直连 wss。链路为 cookie 三件套 → room_id 解析 → a_bogus/X-Bogus 签名 → wss 直连 → 心跳(5s)+ack。签名脚本在 `third_party/douyin-sign/`（AGPL，通过 `vm` 沙箱加载，勿修改）。
   - `roomMeta.ts` — 主播信息解析，从直播间 HTML 提取昵称/头像/标题，仅供展示，失败不影响采集。
+  - `accountStore.ts` — 账号存储（多账号模型核心）。每个账号 = 一个抖音登录态（cookie）+ 元信息，持久化在 `data/accounts/{accountId}.json`。启动时自动迁移旧 cookieStore 数据（`data/cookie.json` → 默认账号，`data/room-cookies/*.json` → 房间账号），旧文件备份为 `.bak`。`DYHUB_COOKIE` 环境变量优先于磁盘值，应用到默认账号。
 - **`src/pipeline/`** — 事件管道。
   - `normalizer.ts` — 翻译层：按 `method` 匹配 `WebcastChatMessage` / `WebcastGiftMessage` 等，映射为统一事件。未识别消息透传为 `unknown` 类型。**抖音改协议只影响此文件及解码器**。
     - 弹幕富文本 `ChatMessage.rtfContentV2`（字段 41，`Text` → `TextPiece` → 图片 / @用户 / 文字）标准化为 `data.parts`；`WebcastEmojiChatMessage`（会员表情 / 大表情）也下发为 `chat`，带 `sticker: true`。字段号对照抖音网页端 live-schema 与 TikTok 解码器，旧 proto 里的 `rtfContent = 22` 已不适用。
@@ -58,9 +59,8 @@ docker compose up -d --build   # 一键启动（内置 Chromium + 中文字体�
 
 - **roomId 统一为 web_rid**（用户可识别的房间短号），非消息体内的内部 webcast roomId。避免房间管理与订阅过滤失配。事件 `roomId` 取自采集会话的 `meta.roomId`，不取消息体。
 - **两种内核产出相同的 `RawProtoMessage`**，管道与分发层无感知。切换内核只需改 `DYHUB_COLLECTOR` 环境变量。
-- **轻量内核共享 cookie**（模块级 `sharedJar`，TTL 15min），多房间并发只跑一次 cookie 链，避免高频请求触发风控。`DYHUB_COOKIE` 环境变量可直接注入浏览器复制的 cookie，绕过 cookie 链请求（解决容器 IP 被风控）。
-- **Cookie 持久化**（`cookieStore.ts`）：Dashboard 网页登录成功后 cookie 自动写入 `data/cookie.json`，Docker 重新部署后自动恢复，直到过期或手动清除。启动时 `DYHUB_COOKIE` 环境变量优先于磁盘文件。解析器同时支持 Cookie 请求头（`k=v; k=v`）与 Set-Cookie 响应头（含 `Expires`/`Max-Age`）两种格式，后者可提取并展示过期时间。
-- **每房间独立 Cookie**（`cookieStore.ts`）：全局 cookie 是默认/回退，每个房间可设置独立 cookie（`data/room-cookies/{roomId}.json` 持久化）。轻量内核有独立 cookie 的会话维护私有 jar，不走 `sharedJar`；浏览器内核为有独立 cookie 的房间创建独立 `BrowserContext`。解决抖音同一账号同一时间只能在一个直播间的问题（多账号多房间礼物信息互不干扰）。
+- **轻量内核共享 cookie**（模块级 `sharedJar`，TTL 15min），多房间并发只跑一次 cookie 链，避免高频请求触发风控。`DYHUB_COOKIE` 环境变量可直接注入浏览器复制的 cookie，应用到默认账号，绕过 cookie 链请求（解决容器 IP 被风控）。
+- **多账号模型**（`accountStore.ts`）：每个账号 = 一个抖音登录态（cookie），持久化在 `data/accounts/{accountId}.json`。账号间互相隔离：浏览器内核为有 cookie 的账号创建独立 `BrowserContext`，轻量内核维护私有 cookie jar。连接房间时通过 `accountId` 指定账号，该房间使用此账号的 cookie。roomId 全局唯一：同一房间不能被多个账号同时订阅（`Collector.connect` 强制校验，返回 409）。订阅协议不变，仍只用 roomId。启动时自动迁移旧 `data/cookie.json`（→ 默认账号）和 `data/room-cookies/*.json`（→ 房间账号），旧文件备份为 `.bak`。
 - **发送弹幕**（`liveSession.ts`）：浏览器内核支持以登录账号发弹幕（`POST /api/rooms/:roomId/chat`），在页面输入框输入并回车，由页面自己签名与请求。同一房间排队发送，间隔见 `DYHUB_CHAT_INTERVAL_MS`。
 - **直播流地址与截图**（`browser.ts` + `liveSession.ts`）：浏览器内核捕获播放器拉流地址（`GET /api/rooms/:roomId/stream`）和截取直播画面（`GET /api/rooms/:roomId/screenshot`），仅供展示与外部拉流。
 - **ESM 项目**（`"type": "module"`），所有内部 import 用 `.js` 扩展名（NodeNext moduleResolution 要求）。TypeScript 7 + Node ≥ 20。

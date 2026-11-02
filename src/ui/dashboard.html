@@ -183,17 +183,12 @@
   <div class="main">
     <aside class="side">
       <div>
-        <div class="panel-title">登录 Cookie <span id="cookieStatus" style="font-weight:400;font-size:11px;color:var(--muted);">未设置</span></div>
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-          <button id="btnWebLogin">网页登录</button>
-          <button id="btnClearCookie" class="ghost">清除</button>
-        </div>
+        <div class="panel-title">账号管理 <button id="btnAddAccount" class="card-btn" style="float:right;font-size:11px;padding:2px 8px;">+ 新建</button></div>
+        <div id="accountList" class="room-list" style="margin-top:8px;"></div>
         <div id="loginBox" style="display:none;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;align-items:center;gap:8px;">
           <div id="loginMsg" style="font-size:12px;line-height:1.5;flex:1;"></div>
           <button id="btnLoginCancel" class="ghost" style="padding:4px 10px;font-size:12px;">取消</button>
         </div>
-        <div id="cookieExpiry" style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;display:none;"></div>
-        <div id="cookieHint" style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">不登录无法接收礼物事件</div>
       </div>
       <hr class="side-divider" />
       <div>
@@ -202,11 +197,11 @@
           <input id="roomInput" placeholder="房间号，如 708764876300" />
           <button id="btnConnect">连接</button>
         </div>
-        <details style="margin-top:8px;">
-          <summary style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none;">独立 Cookie（多账号多房间）</summary>
-          <textarea id="roomCookieInput" placeholder="该房间专用登录 cookie，粘贴整行（含 sessionid_ss 等登录态）" style="width:100%;height:48px;padding:6px;border:1px solid var(--border);border-radius:8px;font-size:11px;resize:vertical;outline:none;font-family:'SF Mono',Menlo,monospace;line-height:1.4;margin-top:6px;"></textarea>
-          <div style="font-size:10px;color:var(--muted);margin-top:4px;">设置后该房间用此 cookie 连接，不影响其他房间。留空则用全局 cookie。</div>
-        </details>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:12px;color:var(--muted);">账号</span>
+          <select id="accountSelect" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:#fff;color:var(--text);"><option value="">默认账号</option></select>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;">多账号不能同时订阅同一直播间</div>
       </div>
       <div>
         <div class="panel-title">已连接房间</div>
@@ -662,16 +657,15 @@ curl -X POST http://${base}/api/webhooks \\
             : r.status === 'error'
               ? `<button class="card-btn" data-act="retry" data-rid="${rid}">重连</button>`
               : '';
-        const cookieBadge = r.hasOwnCookie ? `<span class="roompill" title="使用独立 cookie">🍪</span>` : '';
+        const accBadge = r.accountId ? `<span class="roompill" title="所属账号">${escapeHtml(r.accountName || r.accountId.slice(0, 8))}</span>` : '';
         item.innerHTML = `<div style="min-width:0;flex:1">
-            <div class="r-head">${avatar}<div class="r-info"><div class="r-name">${escapeHtml(nick)} ${cookieBadge}</div>${meta.title ? `<div class="r-title">${escapeHtml(meta.title)}</div>` : ''}</div></div>
+            <div class="r-head">${avatar}<div class="r-info"><div class="r-name">${escapeHtml(nick)} ${accBadge}</div>${meta.title ? `<div class="r-title">${escapeHtml(meta.title)}</div>` : ''}</div></div>
             <div class="r-foot"><span class="rid">${rid}</span> · ${r.msgCount.toLocaleString()} 条消息</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
             <span class="st ${r.status}">${stText}</span>
             <div style="display:flex;gap:4px;">
               ${actBtn}
-              <button class="card-btn" data-act="cookie" data-rid="${rid}" title="设置独立 cookie">Cookie</button>
               <button class="card-btn danger" data-act="remove" data-rid="${rid}" title="删除房间">删除</button>
             </div>
           </div>`;
@@ -692,8 +686,6 @@ curl -X POST http://${base}/api/webhooks \\
           } else if (act === 'remove') {
             if (!confirm(`确定删除房间 ${rid}？删除后需重新输入房号连接。`)) return;
             fetch(`/api/rooms/${rid}`, { method: 'DELETE' }).then(() => refresh());
-          } else if (act === 'cookie') {
-            roomCookieDialog(rid);
           }
         });
       });
@@ -708,13 +700,13 @@ curl -X POST http://${base}/api/webhooks \\
     btn.disabled = true;
     btn.classList.add('btn-loading');
     btn.innerHTML = '<span class="spinner"></span>连接中…';
-    // 独立 cookie（可选）
-    const roomCookie = $('roomCookieInput')?.value?.trim() || '';
+    // 选择的账号（可选，不选则用默认账号）
+    const accountId = $('accountSelect')?.value || '';
     // 立即弹出进度浮层，与 fetch 并行轮询后端进度（避免等 fetch 返回才弹浮层）
     const progressPromise = connectWithProgress(rid);
     try {
       const body = { roomId: rid };
-      if (roomCookie) body.cookie = roomCookie;
+      if (accountId) body.accountId = accountId;
       const r = await fetch('/api/rooms/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok) {
@@ -723,7 +715,6 @@ curl -X POST http://${base}/api/webhooks \\
         return;
       }
       if (!roomId) $('roomInput').value = '';
-      if (!roomId) $('roomCookieInput').value = '';
       await progressPromise;
     } finally {
       btn.innerHTML = orig;
@@ -731,30 +722,6 @@ curl -X POST http://${base}/api/webhooks \\
       btn.classList.remove('btn-loading');
       refresh();
     }
-  }
-
-  /** 房间独立 cookie 设置弹窗 */
-  async function roomCookieDialog(rid) {
-    let status = { set: false, hasLogin: false, keys: [], expiresAt: null };
-    try { status = await (await fetch(`/api/rooms/${rid}/cookie`)).json(); } catch {}
-    const cur = status.set ? `当前已设置（${status.hasLogin ? '含登录态' : '无登录态'}，键: ${status.keys.join(', ')}）` : '未设置独立 cookie';
-    const v = prompt(`房间 ${rid} 独立 Cookie\n${cur}\n\n粘贴新 cookie（留空清除）:`, '');
-    if (v === null) return; // 用户取消
-    if (v.trim()) {
-      await fetch(`/api/rooms/${rid}/cookie`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookie: v.trim() }) });
-      // 若房间已连接，提示需重连才生效
-      const info = await (await fetch(`/api/rooms/${rid}`)).json().catch(() => null);
-      if (info?.room && info.room.status !== 'stopped') {
-        if (confirm('Cookie 已更新，需要重连才能生效。是否立即重连？')) {
-          await fetch(`/api/rooms/${rid}/disconnect`, { method: 'POST' });
-          connect(rid);
-          return;
-        }
-      }
-    } else {
-      await fetch(`/api/rooms/${rid}/cookie`, { method: 'DELETE' });
-    }
-    refresh();
   }
 
   /** 连接进度浮层：分步动画 + 轮询后端 progress 状态 */
@@ -842,56 +809,97 @@ curl -X POST http://${base}/api/webhooks \\
   $('roomInput').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
   document.querySelectorAll('#filters input').forEach(i => i.addEventListener('change', () => { if (ws) ws.close(); }));
   setInterval(() => { $('stRate').textContent = (rateCounter * 60 / 30).toFixed(0); rateCounter = 0; refresh(); }, 30000);
-  // ---- Cookie 管理 ----
-  // 已登录或登录窗口打开中时禁用「网页登录」（换号需先清除）
-  let loggedIn = false, loginInProgress = false;
-  function syncLoginBtn() {
-    const btn = $('btnWebLogin');
-    btn.textContent = loginInProgress ? '登录中…' : '网页登录';
-    btn.disabled = loggedIn || loginInProgress;
-    btn.title = loggedIn && !loginInProgress ? '已登录，如需切换账号请先清除' : '';
-  }
-  function updateCookieStatus(s) {
-    loggedIn = !!s.hasLogin;
-    syncLoginBtn();
-    const el = $('cookieStatus');
-    const ex = $('cookieExpiry');
-    $('cookieHint').style.display = s.hasLogin ? 'none' : 'block';
-    if (!s.set) { el.textContent = '未设置'; el.style.color = 'var(--muted)'; }
-    else if (s.hasLogin) { el.textContent = '已设置（登录态 ✓）'; el.style.color = '#2d7a4c'; }
-    else { el.textContent = '已设置（游客）'; el.style.color = '#a8781a'; }
-    // 过期时间展示
-    if (!s.set) { ex.style.display = 'none'; return; }
-    if (s.expiresAt) {
-      const exp = new Date(s.expiresAt);
-      const now = Date.now();
-      const txt = exp.toLocaleString('zh-CN', { hour12: false });
-      if (s.expiresAt < now) {
-        ex.innerHTML = `⏰ 过期时间：${txt} — <span style="color:#a33;">已过期</span>`;
-      } else {
-        const days = Math.floor((s.expiresAt - now) / 86400000);
-        const hrs = Math.floor(((s.expiresAt - now) % 86400000) / 3600000);
-        const remain = days > 0 ? `${days} 天 ${hrs} 小时` : `${hrs} 小时`;
-        ex.innerHTML = `⏰ 过期时间：${txt}（还剩 ${remain}）`;
-      }
-      ex.style.display = 'block';
-    } else if (s.persisted) {
-      const saved = s.savedAt ? new Date(s.savedAt).toLocaleString('zh-CN', { hour12: false }) : '';
-      ex.innerHTML = `💾 已持久化${saved ? '（保存于 ' + saved + '）' : ''}，过期时间未知`;
-      ex.style.display = 'block';
-    } else {
-      ex.style.display = 'none';
-    }
-  }
-  async function refreshCookieStatus() {
-    try { updateCookieStatus(await (await fetch('/api/cookie')).json()); } catch {}
-  }
-  $('btnClearCookie').onclick = async () => {
-    await fetch('/api/cookie', { method: 'DELETE' });
-    updateCookieStatus({ set: false, hasLogin: false, keys: [], expiresAt: null, savedAt: null, persisted: false });
-  };
-  // ---- 网页登录（弹出抖音窗口）----
+  // ---- 账号管理 ----
+  let accounts = [];
+  let activeLoginAccountId = null; // 当前正在登录的账号 ID（登录窗口是全局单例）
   let loginTimer = null;
+
+  /** 格式化过期时间显示 */
+  function formatExpiry(ms) {
+    if (!ms) return '';
+    const exp = new Date(ms);
+    const now = Date.now();
+    const txt = exp.toLocaleString('zh-CN', { hour12: false });
+    if (ms < now) return `<span style="color:#a33;">⏰ ${txt} 已过期</span>`;
+    const days = Math.floor((ms - now) / 86400000);
+    const hrs = Math.floor(((ms - now) % 86400000) / 3600000);
+    const remain = days > 0 ? `${days} 天 ${hrs} 小时` : `${hrs} 小时`;
+    return `⏰ ${txt}（还剩 ${remain}）`;
+  }
+
+  /** 渲染账号列表 + 填充房间连接时的账号下拉 */
+  function renderAccounts() {
+    const list = $('accountList');
+    list.innerHTML = '';
+    if (!accounts.length) {
+      list.innerHTML = '<div class="empty" style="padding:12px;font-size:12px;">暂无账号，点击「新建」创建</div>';
+    }
+    for (const a of accounts) {
+      const dot = a.hasLogin ? '<span style="color:#2d7a4c;">●</span>' : a.hasCookie ? '<span style="color:#a8781a;">●</span>' : '<span style="color:#ccc;">○</span>';
+      const item = document.createElement('div');
+      item.className = 'room-item';
+      const expHtml = a.cookieExpiresAt ? formatExpiry(a.cookieExpiresAt) : (a.hasCookie ? '<span style="color:var(--muted);">过期时间未知</span>' : '');
+      item.innerHTML = `<div style="min-width:0;flex:1">
+          <div class="r-head"><div class="r-info"><div class="r-name">${dot} ${escapeHtml(a.name)} ${a.name === '默认' ? '<span class="roompill">默认</span>' : ''}</div></div></div>
+          <div class="r-foot">${a.hasLogin ? '已登录' : a.hasCookie ? '游客 cookie' : '无 cookie'} ${expHtml}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+          <div style="display:flex;gap:4px;">
+            ${a.hasLogin ? '' : '<button class="card-btn" data-act="login" data-id="${a.id}">登录</button>'}
+            ${a.hasCookie ? `<button class="card-btn ghost" data-act="clear" data-id="${a.id}">清除</button>` : ''}
+            <button class="card-btn danger" data-act="del" data-id="${a.id}" title="删除账号">×</button>
+          </div>
+        </div>`;
+      list.appendChild(item);
+    }
+    list.querySelectorAll('.card-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const act = btn.dataset.act;
+        const id = btn.dataset.id;
+        if (act === 'login') startLogin(id);
+        else if (act === 'clear') clearAccountCookie(id);
+        else if (act === 'del') deleteAccount(id);
+      });
+    });
+
+    // 填充房间连接的账号下拉
+    const sel = $('accountSelect');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">默认账号</option>' +
+      accounts.filter(a => a.name !== '默认').map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.hasLogin ? '' : '（未登录）'}</option>`).join('');
+    if (prev) sel.value = prev;
+  }
+
+  async function refreshAccounts() {
+    try {
+      const j = await (await fetch('/api/accounts')).json();
+      accounts = j.accounts || [];
+      renderAccounts();
+    } catch {}
+  }
+
+  $('btnAddAccount').onclick = async () => {
+    const name = prompt('账号名称（如：小号A、备用号）:', '');
+    if (!name || !name.trim()) return;
+    await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+    refreshAccounts();
+  };
+
+  async function deleteAccount(id) {
+    const a = accounts.find(x => x.id === id);
+    if (!a) return;
+    if (!confirm(`确定删除账号「${a.name}」？该账号的 cookie 将一并清除。`)) return;
+    await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+    refreshAccounts();
+  }
+
+  async function clearAccountCookie(id) {
+    await fetch(`/api/accounts/${id}/cookie`, { method: 'DELETE' });
+    refreshAccounts();
+  }
+
+  // ---- 网页登录（弹出抖音窗口，全局单例）----
   const loginActive = (st) => st.status === 'opening' || st.status === 'waiting';
   function showLogin(st) {
     const box = $('loginBox'), msg = $('loginMsg');
@@ -900,31 +908,39 @@ curl -X POST http://${base}/api/webhooks \\
     msg.style.color = st.status === 'error' || st.status === 'expired' ? '#a33' : st.status === 'success' ? '#2d7a4c' : 'var(--text)';
     const active = loginActive(st);
     $('btnLoginCancel').textContent = active ? '取消' : '关闭';
-    loginInProgress = active;
-    syncLoginBtn();
-    if (!active) { clearInterval(loginTimer); loginTimer = null; }
-    if (st.status === 'success') refreshCookieStatus();
+    if (!active) { clearInterval(loginTimer); loginTimer = null; activeLoginAccountId = null; }
+    if (st.status === 'success') refreshAccounts();
   }
   async function pollLogin() {
-    try { showLogin(await (await fetch('/api/cookie/login')).json()); } catch {}
+    if (!activeLoginAccountId) return;
+    try { showLogin(await (await fetch(`/api/accounts/${activeLoginAccountId}/login`)).json()); } catch {}
   }
-  $('btnWebLogin').onclick = async () => {
+  async function startLogin(id) {
+    activeLoginAccountId = id;
     showLogin({ status: 'opening', message: '正在打开抖音登录窗口…' });
-    const r = await fetch('/api/cookie/login', { method: 'POST' });
+    const r = await fetch(`/api/accounts/${id}/login`, { method: 'POST' });
     showLogin(await r.json());
     clearInterval(loginTimer);
     loginTimer = setInterval(pollLogin, 1500);
-  };
+  }
   $('btnLoginCancel').onclick = async () => {
-    const st = await (await fetch('/api/cookie/login')).json();
-    if (loginActive(st)) showLogin(await (await fetch('/api/cookie/login', { method: 'DELETE' })).json());
+    if (!activeLoginAccountId) { $('loginBox').style.display = 'none'; return; }
+    const st = await (await fetch(`/api/accounts/${activeLoginAccountId}/login`)).json();
+    if (loginActive(st)) showLogin(await (await fetch(`/api/accounts/${activeLoginAccountId}/login`, { method: 'DELETE' })).json());
     else $('loginBox').style.display = 'none';
   };
   // 页面打开时若有进行中的登录（例如刷新了页面），继续展示并轮询
-  fetch('/api/cookie/login').then((r) => r.json()).then((st) => {
-    if (loginActive(st)) { showLogin(st); loginTimer = setInterval(pollLogin, 1500); }
+  fetch('/api/accounts').then((r) => r.json()).then(async (j) => {
+    if (!j.accounts || !j.accounts.length) return;
+    // 检查是否有进行中的登录（全局单例，用任意账号的 login 接口查）
+    const st = await (await fetch(`/api/accounts/${j.accounts[0].id}/login`)).json();
+    if (loginActive(st)) {
+      activeLoginAccountId = j.accounts[0].id;
+      showLogin(st);
+      loginTimer = setInterval(pollLogin, 1500);
+    }
   }).catch(() => {});
-  refreshCookieStatus();
+  refreshAccounts();
 
   connectWS();
   refresh();

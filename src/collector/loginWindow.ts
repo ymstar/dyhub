@@ -2,9 +2,9 @@
  * 网页登录 —— 弹出真实的 Chrome 窗口打开抖音，由用户在抖音页面里完成登录
  *
  * 扫码、短信验证码、滑块等都由抖音页面自己处理，我们只轮询浏览器 cookie：
- * 出现 sessionid_ss 等登录 cookie 即存入 cookieStore 并关闭窗口。
+ * 出现 sessionid_ss 等登录 cookie 即存入指定账号并关闭窗口。
  *
- * 浏览器资料保存在 data/login-profile/（与 data/cookie.json 一样不入库）。
+ * 浏览器资料保存在 data/login-profile/（不入库）。
  * 每次打开窗口前会清空其中的 cookie，确保总是重新登录（可切换账号）。
  * 需要图形界面：Docker / 无显示器的服务器上请改用 DYHUB_COOKIE 环境变量。
  */
@@ -12,7 +12,7 @@
 import { chromium, type BrowserContext } from 'playwright-core';
 import { join } from 'node:path';
 import { DEFAULT_USER_AGENT, findChrome } from './browser.js';
-import * as cookieStore from './cookieStore.js';
+import * as accountStore from './accountStore.js';
 
 export type LoginStatus =
   | 'idle' //     未开始 / 已取消
@@ -72,7 +72,7 @@ export async function cancel(): Promise<void> {
 }
 
 /** 打开登录窗口，窗口出现后返回；之后在后台等待登录完成，用 getState() 轮询。 */
-export async function start(): Promise<LoginState> {
+export async function start(accountId: string): Promise<LoginState> {
   await cancel();
   const gen = ++generation;
   const alive = () => gen === generation;
@@ -119,7 +119,7 @@ export async function start(): Promise<LoginState> {
     await page.bringToFront();
     setState('waiting', '请在弹出的窗口中登录抖音（扫码 / 验证码均可），完成后窗口会自动关闭');
 
-    void waitForLogin(gen);
+    void waitForLogin(gen, accountId);
     return state;
   } catch (e) {
     if (alive()) {
@@ -128,7 +128,7 @@ export async function start(): Promise<LoginState> {
       setState(
         'error',
         noDisplay
-          ? '当前环境没有图形界面，无法弹出登录窗口，请改用粘贴 cookie'
+          ? '当前环境没有图形界面，无法弹出登录窗口，请改用 DYHUB_COOKIE 环境变量'
           : `打开登录窗口失败：${msg}`,
       );
       await closeWindow(gen);
@@ -138,7 +138,7 @@ export async function start(): Promise<LoginState> {
 }
 
 /** 轮询浏览器 cookie，出现登录 cookie 即保存并关闭窗口；超时则标记过期 */
-async function waitForLogin(gen: number): Promise<void> {
+async function waitForLogin(gen: number, accountId: string): Promise<void> {
   const deadline = Date.now() + LOGIN_TIMEOUT_MS;
   while (gen === generation && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_MS));
@@ -157,11 +157,9 @@ async function waitForLogin(gen: number): Promise<void> {
     const expiries = cookies
       .filter((c) => LOGIN_COOKIES.includes(c.name) && c.expires > 0)
       .map((c) => c.expires * 1000);
-    cookieStore.setCookie(cookieStr, {
-      expiresAt: expiries.length ? Math.min(...expiries) : null,
-    });
+    accountStore.setAccountCookie(accountId, cookieStr, expiries.length ? Math.min(...expiries) : null);
     setState('success', '登录成功，cookie 已保存');
-    console.log('[dyhub] 网页登录成功，已更新 cookie');
+    console.log('[dyhub] 网页登录成功，已更新账号 cookie');
     await closeWindow(gen);
     return;
   }

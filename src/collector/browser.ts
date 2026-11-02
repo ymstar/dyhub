@@ -11,7 +11,8 @@
 
 import { chromium, type Browser, type BrowserContext, type Page, type CDPSession } from 'playwright-core';
 import { existsSync } from 'node:fs';
-import * as cookieStore from './cookieStore.js';
+// cookieStore 已迁移至 accountStore（多账号模型），共享 context 不再注入全局 cookie。
+// 账号有 cookie 时 collector 会传入 opts.cookie 创建独立 context；无 cookie 时用共享 context 匿名访问。
 
 const DEFAULT_CHROME_PATHS = [
   // macOS
@@ -141,7 +142,7 @@ export class BrowserManager {
    * 打开一个直播间页面并建立 CDP 会话
    * 无头模式需要一次点击手势触发播放器初始化，弹幕 wss 才会建立。
    * opts.cookie：传入时创建独立 BrowserContext 注入该 cookie（多账号多房间互不干扰）；
-   *               不传时用共享 context + 全局 cookieStore。
+   *               不传时用共享 context 匿名访问（浏览器自身管理 cookie）。
    */
   async openRoom(roomUrl: string, opts: { clickTrigger?: boolean; cookie?: string } = {}): Promise<OpenedRoom> {
     await this.init();
@@ -174,25 +175,8 @@ export class BrowserManager {
       if (cookies.length) await ctx.addCookies(cookies);
       ownContext = true;
     } else {
-      // 共享 context + 全局 cookieStore
+      // 共享 context（无独立 cookie 时使用，浏览器自身会管理匿名 cookie）
       ctx = this.context!;
-      const cookieStr = cookieStore.getCookieStr();
-      if (cookieStr) {
-        const cookies = cookieStr
-          .split(';')
-          .map((part) => {
-            const i = part.indexOf('=');
-            if (i <= 0) return null;
-            return {
-              name: part.slice(0, i).trim(),
-              value: part.slice(i + 1).trim(),
-              domain: '.douyin.com',
-              path: '/',
-            };
-          })
-          .filter((c): c is { name: string; value: string; domain: string; path: string } => c !== null);
-        if (cookies.length) await ctx.addCookies(cookies);
-      }
     }
 
     const page = await ctx.newPage();
