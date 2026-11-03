@@ -42,41 +42,42 @@ ttwid=xxxxxxxx; sessionid_ss=xxxxxxxx; sid_tt=xxxxxxxx; __ac_nonce=xxxxxxxx; ...
 
 > **注意**：Cookie 包含登录凭据，等同于账号会话。请勿公开分享或提交到代码仓库。
 
-## 如何配置
+## 如何配置（多账号模型）
 
-有三种方式，效果相同，按场景选择：
+DyHub 采用多账号模型：每个账号 = 一个抖音登录态（cookie）。连接房间时选择账号，该房间使用此账号的 cookie。账号间互相隔离，互不干扰。
 
-### 方式一：控制台填写（推荐）
+有两种方式创建账号并配置 cookie：
+
+### 方式一：控制台网页登录（推荐）
 
 服务启动后、连接房间前，在控制台操作：
 
 1. 打开 `http://localhost:8757`
-2. 左侧栏「登录 Cookie」面板 → 文本框粘贴 Cookie
-3. 点击「保存」
-4. 状态标签变为 **已设置（登录态 ✓）** 即可
-5. 连接直播间，礼物事件将正常出现
+2. 左侧栏「账号管理」面板 → 点击「+ 新建」创建账号（如：小号A、备用号）
+3. 在对应账号卡片上点击「登录」→ 弹出抖音窗口
+4. 在窗口中完成登录，Cookie 会自动保存到该账号
+5. 状态标签变为 **● 已登录** 即可
+6. 连接直播间时，在「账号」下拉中选择该账号
 
-> 支持运行时随时更新：修改 Cookie 后保存，新连接的房间会使用新 Cookie；已连接的房间需断开重连生效。
+> 支持运行时随时更新：重新登录后，新连接的房间会使用新 Cookie；已连接的房间需断开重连生效。
 
-### 方式二：API 调用
+> 查看 / 清除账号 Cookie 也可以通过 API：
 
 ```bash
-# 设置 Cookie
-curl -X POST http://localhost:8757/api/cookie \
-  -H 'Content-Type: application/json' \
-  -d '{"cookie":"ttwid=xxx; sessionid_ss=xxx; sid_tt=xxx; ..."}'
+# 查看账号列表（不返回 Cookie 值）
+curl http://localhost:8757/api/accounts
+# → {"accounts":[{"id":"acc_xxx","name":"小号A","hasLogin":true,"keys":["ttwid","sessionid_ss",...]}]}
 
-# 查看状态（不返回 Cookie 值）
-curl http://localhost:8757/api/cookie
-# → {"set":true,"hasLogin":true,"keys":["ttwid","sessionid_ss","sid_tt",...]}
+# 清除指定账号的 Cookie
+curl -X DELETE http://localhost:8757/api/accounts/acc_xxx/cookie
 
-# 清除 Cookie
-curl -X DELETE http://localhost:8757/api/cookie
+# 删除账号
+curl -X DELETE http://localhost:8757/api/accounts/acc_xxx
 ```
 
-### 方式三：环境变量（适合 Docker / 无界面部署）
+### 方式二：环境变量（适合 Docker / 无界面部署）
 
-启动前设置 `DYHUB_COOKIE` 环境变量：
+启动前设置 `DYHUB_COOKIE` 环境变量，会应用到默认账号：
 
 ```bash
 # 本地
@@ -90,7 +91,13 @@ environment:
 docker run -d -p 8757:8757 -e DYHUB_COOKIE="ttwid=xxx; sessionid_ss=xxx" dyhub
 ```
 
-> 环境变量在启动时读入。如需运行时更新，用方式一或方式二。
+> 环境变量在启动时读入。如需运行时更新或配置多个账号，用方式一。
+
+## 多账号与房间订阅
+
+- **每个账号独立 cookie**：账号间完全隔离，浏览器内核为有 cookie 的账号创建独立 BrowserContext，轻量内核维护私有 cookie jar
+- **同一房间不能被多个账号同时订阅**：`POST /api/rooms/connect` 时如果房间已被其他账号占用，返回 409。如需切换账号，先断开再重连
+- **订阅协议不变**：消费端仍只用 roomId 订阅，不感知账号
 
 ## 两种采集内核的注入方式
 
@@ -99,13 +106,13 @@ docker run -d -p 8757:8757 -e DYHUB_COOKIE="ttwid=xxx; sessionid_ss=xxx" dyhub
 | **轻量内核**（`DYHUB_COLLECTOR=lightweight`） | Cookie 拼入 wss 握手 HTTP 头，webcast 服务端据此判断登录态并推送礼物事件 |
 | **浏览器内核**（`DYHUB_COLLECTOR=browser`，默认） | Cookie 通过 `context.addCookies` 注入浏览器上下文，页面以登录态加载，页面内 webcast wss 自动携带登录 Cookie |
 
-两种内核均支持上述三种配置方式。
+两种内核均支持上述两种配置方式。
 
 ## 常见问题
 
 **Q：保存了 Cookie 但礼物事件还是不出现？**
 
-- 确认状态标签显示「登录态 ✓」而非「游客」——说明 Cookie 中含 `sessionid_ss` 等登录键
+- 确认账号状态显示「已登录」而非「游客」——说明 Cookie 中含 `sessionid_ss` 等登录键
 - 确认直播间确实有观众在送礼
 - Cookie 可能已过期，重新从浏览器复制
 - 断开房间重新连接，Cookie 变更对已连接的房间不自动生效
@@ -120,4 +127,8 @@ docker run -d -p 8757:8757 -e DYHUB_COOKIE="ttwid=xxx; sessionid_ss=xxx" dyhub
 
 **Q：Cookie 安全吗？**
 
-Cookie 包含登录凭据，等同于账号会话权限。DyHub 的 `GET /api/cookie` 只返回键名列表和状态，不返回 Cookie 值。请勿将含 Cookie 的配置文件提交到 Git 仓库。
+Cookie 包含登录凭据，等同于账号会话权限。DyHub 的 `GET /api/accounts` 只返回键名列表和状态，不返回 Cookie 值。请勿将含 Cookie 的配置文件提交到 Git 仓库。
+
+**Q：旧版 data/cookie.json 和 data/room-cookies/ 数据会丢失吗？**
+
+不会。启动时自动迁移：`data/cookie.json` → 名为「默认」的账号，`data/room-cookies/{roomId}.json` → 名为「房间 {roomId}」的账号。旧文件备份为 `.bak`。

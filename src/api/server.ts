@@ -8,8 +8,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import fastifyStatic from '@fastify/static';
-import { Collector } from '../collector/collector.js';
-import * as cookieStore from '../collector/cookieStore.js';
+import { Collector, RoomActionError } from '../collector/collector.js';
+import * as accountStore from '../collector/accountStore.js';
+import * as loginWindow from '../collector/loginWindow.js';
 import { EventBus } from '../pipeline/eventBus.js';
 import { WebhookDispatcher } from '../dispatch/webhook.js';
 import { registerSseRoute } from '../dispatch/sseServer.js';
@@ -30,6 +31,9 @@ function normalizeRoomIdInput(raw: unknown): string {
   return s.replace(/\D/g, '');
 }
 
+/** 发送弹幕后等它出现在推送流里的最长时间 */
+const CHAT_ECHO_TIMEOUT_MS = 8000;
+
 export interface ApiDeps {
   collector: Collector;
   bus: EventBus;
@@ -46,38 +50,71 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   app.register(fastifyStatic, { root: uiDir, prefix: '/', index: ['dashboard.html'] });
   app.get('/', (_req, reply) => reply.sendFile('dashboard.html'));
 
-  // ---- Cookie 管理（运行时注入登录态，使礼物事件可获取）----
-  app.get('/api/cookie', async () => cookieStore.getStatus());
+  // ---- 账号管理（多账号隔离，每个账号独立 cookie）----
+  app.get('/api/accounts', async () => ({ accounts: accountStore.listAccountStatuses() }));
 
-  app.post('/api/cookie', async (req, reply) => {
-    const { cookie, persist } = (req.body ?? {}) as { cookie?: string; persist?: boolean };
-    if (!cookie || !cookie.trim()) return reply.code(400).send({ error: 'cookie 不能为空' });
-    cookieStore.setCookie(cookie, { persist: persist ?? false });
-    return { ok: true, ...cookieStore.getStatus() };
+  app.post('/api/accounts', async (req, reply) => {
+    const { name } = (req.body ?? {}) as { name?: string };
+    if (!name || !name.trim()) return reply.code(400).send({ error: 'name 必填' });
+    const acc = accountStore.createAccount(name.trim());
+    return { ok: true, account: accountStore.getAccountStatus(acc.id) };
   });
 
-  app.delete('/api/cookie', async () => {
-    cookieStore.clear();
-    return { ok: true, ...cookieStore.getStatus() };
+  // ---- 账号网页登录（弹出 Chrome 窗口打开抖音，用户登录后自动写入该账号 cookie）----
+  app.post('/api/accounts/:id/login', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });
+    return loginWindow.start(id);
+  });
+
+  app.get('/api/accounts/:id/login', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });
+    return loginWindow.getState();
+  });
+
+  app.delete('/api/accounts/:id/login', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    await loginWindow.cancel();
+    return loginWindow.getState();
+  });
+
+  // ---- 账号 cookie 管理 ----
+  app.get('/api/accounts/:id/cookie', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });
+    return accountStore.getAccountStatus(id);
+  });
+
+  app.delete('/api/accounts/:id/cookie', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });
+    accountStore.clearAccountCookie(id);
+    return { ok: true, ...accountStore.getAccountStatus(id) };
+  });
+
+  // ---- 删除账号 ----
+  app.delete('/api/accounts/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });
+    accountStore.deleteAccount(id);
+    return { ok: true };
   });
 
   // ---- 房间管理 ----
   app.get('/api/rooms', async () => ({ rooms: deps.collector.getRooms() }));
 
   app.post('/api/rooms/connect', async (req, reply) => {
-    const { roomId: rawRoomId, cookie } = (req.body ?? {}) as { roomId?: string; cookie?: string };
+    const { roomId: rawRoomId, accountId } = (req.body ?? {}) as { roomId?: string; accountId?: string };
     const roomId = normalizeRoomIdInput(rawRoomId);
     if (!roomId) {
       return reply.code(400).send({ error: 'roomId 必须为纯数字（也可直接粘贴 live.douyin.com 直播间链接）' });
     }
-    // 传入 cookie 时持久化到 cookieStore，后续重连自动复用
-    if (cookie && cookie.trim()) {
-      cookieStore.setRoomCookie(roomId, cookie);
-    }
     try {
-      const info = await deps.collector.connect(roomId, { cookie: cookie?.trim() || undefined });
+      const info = await deps.collector.connect(roomId, { accountId });
       return { ok: true, room: info };
     } catch (e: any) {
+      if (e instanceof RoomActionError) return reply.code(e.statusCode).send({ error: e.message });
       return reply.code(500).send({ error: `连接失败: ${e?.message ?? e}` });
     }
   });
@@ -101,27 +138,58 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
     return { room: info };
   });
 
-  // ---- 每房间独立 Cookie（多账号多房间互不干扰）----
-  app.get('/api/rooms/:roomId/cookie', async (req, reply) => {
+  // ---- 发送弹幕（以登录账号发言，需浏览器内核 + 网页登录）----
+  app.post('/api/rooms/:roomId/chat', async (req, reply) => {
     const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
-    if (!roomId) return reply.code(400).send({ error: 'roomId 无效' });
-    return cookieStore.getRoomCookieStatus(roomId);
+    const { text: rawText } = (req.body ?? {}) as { text?: unknown };
+    const text = typeof rawText === 'string' ? rawText.trim() : '';
+    if (!text) return reply.code(400).send({ error: 'text 必填' });
+    // 先订阅再发送，等自己的弹幕从推送流回来，确认抖音收下了
+    let subId = 0;
+    const echo = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), CHAT_ECHO_TIMEOUT_MS);
+      subId = deps.bus.subscribe({ roomId, type: 'chat' }, (ev) => {
+        if (ev.type === 'chat' && ev.data.content === text) {
+          clearTimeout(timer);
+          resolve(true);
+        }
+      });
+    });
+    try {
+      await deps.collector.sendChat(roomId, text);
+      const echoed = await echo;
+      return { ok: true, echoed };
+    } catch (e: any) {
+      const code = e instanceof RoomActionError ? e.statusCode : 500;
+      return reply.code(code).send({ error: `发送失败: ${e?.message ?? e}` });
+    } finally {
+      deps.bus.unsubscribe(subId);
+    }
   });
 
-  app.put('/api/rooms/:roomId/cookie', async (req, reply) => {
+  // ---- 直播流地址（浏览器页面播放器请求的 FLV / HLS 地址，可直接给 ffmpeg 拉流）----
+  app.get('/api/rooms/:roomId/stream', async (req, reply) => {
     const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
-    if (!roomId) return reply.code(400).send({ error: 'roomId 无效' });
-    const { cookie } = (req.body ?? {}) as { cookie?: string };
-    if (!cookie || !cookie.trim()) return reply.code(400).send({ error: 'cookie 不能为空' });
-    cookieStore.setRoomCookie(roomId, cookie);
-    return { ok: true, ...cookieStore.getRoomCookieStatus(roomId) };
+    try {
+      const url = deps.collector.getStreamUrl(roomId);
+      if (!url) return reply.code(409).send({ error: '播放器尚未请求直播流（可能未开播）' });
+      return { url };
+    } catch (e: any) {
+      const code = e instanceof RoomActionError ? e.statusCode : 500;
+      return reply.code(code).send({ error: `获取直播流失败: ${e?.message ?? e}` });
+    }
   });
 
-  app.delete('/api/rooms/:roomId/cookie', async (req, reply) => {
+  // ---- 直播画面截图（JPEG）----
+  app.get('/api/rooms/:roomId/screenshot', async (req, reply) => {
     const roomId = normalizeRoomIdInput((req.params as { roomId: string }).roomId);
-    if (!roomId) return reply.code(400).send({ error: 'roomId 无效' });
-    cookieStore.clearRoomCookie(roomId);
-    return { ok: true };
+    try {
+      const jpeg = await deps.collector.screenshot(roomId);
+      return reply.type('image/jpeg').header('Cache-Control', 'no-store').send(jpeg);
+    } catch (e: any) {
+      const code = e instanceof RoomActionError ? e.statusCode : 500;
+      return reply.code(code).send({ error: `截图失败: ${e?.message ?? e}` });
+    }
   });
 
   // ---- Webhook 管理 ----
@@ -176,6 +244,8 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
       status: r.status,
       msgCount: r.stats.msgCount,
       meta: r.meta ?? null,
+      accountId: r.accountId,
+      accountName: r.accountId ? accountStore.getAccount(r.accountId)?.name : undefined,
     })),
   }));
 

@@ -11,7 +11,8 @@
 
 import { chromium, type Browser, type BrowserContext, type Page, type CDPSession } from 'playwright-core';
 import { existsSync } from 'node:fs';
-import * as cookieStore from './cookieStore.js';
+// cookieStore 已迁移至 accountStore（多账号模型），共享 context 不再注入全局 cookie。
+// 账号有 cookie 时 collector 会传入 opts.cookie 创建独立 context；无 cookie 时用共享 context 匿名访问。
 
 const DEFAULT_CHROME_PATHS = [
   // macOS
@@ -29,6 +30,28 @@ const DEFAULT_CHROME_PATHS = [
 const FALLBACK_HEADLESS_SHELL =
   process.env.HOME + '/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 
+/** 探测本机 Chrome / Chromium 可执行文件路径，找不到返回 undefined */
+export function findChrome(): string | undefined {
+  for (const p of DEFAULT_CHROME_PATHS) {
+    try {
+      if (existsSync(p)) return p;
+    } catch {
+      /* ignore */
+    }
+  }
+  // playwright 缓存的 headless shell 兜底
+  try {
+    if (existsSync(FALLBACK_HEADLESS_SHELL)) return FALLBACK_HEADLESS_SHELL;
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+/** 默认桌面 UA（采集与扫码登录共用） */
+export const DEFAULT_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 export interface BrowserManagerOptions {
   /** Chrome 可执行文件路径，缺省时自动探测 */
   executablePath?: string;
@@ -43,6 +66,21 @@ export interface OpenedRoom {
   cdp: CDPSession;
   /** 独立 context（每房间 cookie 时创建，关房时需清理） */
   context?: BrowserContext;
+  /** 播放器最近请求的直播流地址（FLV / HLS），还没请求时为 null */
+  streamUrl: () => string | null;
+}
+
+/** 播放器拉流的地址：FLV 或 HLS */
+const STREAM_URL = /^https?:\/\/[^/]+\/.+\.(flv|m3u8)(\?|$)/;
+
+/** 从 webcast/room/web/enter/ 的返回里取一个 FLV 地址：清晰度越低越省带宽，音频都一样 */
+function flvUrlFromEnter(body: any): string | null {
+  const urls: Record<string, string> | undefined = body?.data?.data?.[0]?.stream_url?.flv_pull_url;
+  if (!urls) return null;
+  for (const quality of ['SD2', 'SD1', 'HD1', 'FULL_HD1']) {
+    if (urls[quality]) return urls[quality];
+  }
+  return Object.values(urls)[0] ?? null;
 }
 
 export class BrowserManager {
@@ -53,29 +91,10 @@ export class BrowserManager {
 
   constructor(opts: BrowserManagerOptions = {}) {
     this.opts = {
-      executablePath: opts.executablePath ?? this.detectChrome() ?? '',
-      userAgent:
-        opts.userAgent ??
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      executablePath: opts.executablePath ?? findChrome() ?? '',
+      userAgent: opts.userAgent ?? DEFAULT_USER_AGENT,
       headless: opts.headless ?? true,
     };
-  }
-
-  private detectChrome(): string | undefined {
-    for (const p of DEFAULT_CHROME_PATHS) {
-      try {
-        if (existsSync(p)) return p;
-      } catch {
-        /* ignore */
-      }
-    }
-    // playwright 缓存的 headless shell 兜底
-    try {
-      if (existsSync(FALLBACK_HEADLESS_SHELL)) return FALLBACK_HEADLESS_SHELL;
-    } catch {
-      /* ignore */
-    }
-    return undefined;
   }
 
   async init(): Promise<void> {
@@ -123,7 +142,7 @@ export class BrowserManager {
    * 打开一个直播间页面并建立 CDP 会话
    * 无头模式需要一次点击手势触发播放器初始化，弹幕 wss 才会建立。
    * opts.cookie：传入时创建独立 BrowserContext 注入该 cookie（多账号多房间互不干扰）；
-   *               不传时用共享 context + 全局 cookieStore。
+   *               不传时用共享 context 匿名访问（浏览器自身管理 cookie）。
    */
   async openRoom(roomUrl: string, opts: { clickTrigger?: boolean; cookie?: string } = {}): Promise<OpenedRoom> {
     await this.init();
@@ -156,30 +175,33 @@ export class BrowserManager {
       if (cookies.length) await ctx.addCookies(cookies);
       ownContext = true;
     } else {
-      // 共享 context + 全局 cookieStore
+      // 共享 context（无独立 cookie 时使用，浏览器自身会管理匿名 cookie）
       ctx = this.context!;
-      const cookieStr = cookieStore.getCookieStr();
-      if (cookieStr) {
-        const cookies = cookieStr
-          .split(';')
-          .map((part) => {
-            const i = part.indexOf('=');
-            if (i <= 0) return null;
-            return {
-              name: part.slice(0, i).trim(),
-              value: part.slice(i + 1).trim(),
-              domain: '.douyin.com',
-              path: '/',
-            };
-          })
-          .filter((c): c is { name: string; value: string; domain: string; path: string } => c !== null);
-        if (cookies.length) await ctx.addCookies(cookies);
-      }
     }
 
     const page = await ctx.newPage();
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Network.enable');
+
+    // 在打开页面前开始记录直播流地址，两个来源：
+    //  - 播放器的拉流请求：最准，但直播流的 fetch 永远不结束，不进 performance 资源记录，事后补不回来；
+    //    且登录态下播放器在 Web Worker 里拉流，页面看不到这条请求。
+    //  - 页面加载时请求的 webcast/room/web/enter/：返回各清晰度的 FLV 地址，兜底用。
+    // 地址带签名，播放器重连时会换新的。
+    let requested: string | null = null;
+    let entered: string | null = null;
+    page.on('request', (req) => {
+      if (STREAM_URL.test(req.url())) requested = req.url();
+    });
+    page.on('response', (res) => {
+      if (!res.url().includes('/webcast/room/web/enter/')) return;
+      res
+        .json()
+        .then((body) => {
+          entered = flvUrlFromEnter(body) ?? entered;
+        })
+        .catch(() => {});
+    });
 
     await page.goto(roomUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     // 等待页面标题就绪（页面加载完成信号）
@@ -196,7 +218,7 @@ export class BrowserManager {
         /* 点击失败不阻塞 */
       }
     }
-    return { page, cdp, context: ownContext ? ctx : undefined };
+    return { page, cdp, context: ownContext ? ctx : undefined, streamUrl: () => requested ?? entered };
   }
 
   async closeRoom(page: Page, context?: BrowserContext): Promise<void> {

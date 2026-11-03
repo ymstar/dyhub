@@ -13,7 +13,7 @@ import { LiveSession } from './liveSession.js';
 import { fetchRoomMeta } from './roomMeta.js';
 import type { RoomMeta } from './roomMeta.js';
 import type { RawProtoMessage } from '../proto/douyin.proto.js';
-import * as cookieStore from './cookieStore.js';
+import * as accountStore from './accountStore.js';
 
 /** 采集会话的统一形状（LiveSession / LightweightSession 都实现） */
 export interface SessionLike {
@@ -26,6 +26,12 @@ export interface SessionLike {
   waitForLive(timeoutMs?: number): Promise<boolean>;
   /** 从页面 HTML 解析开播状态（仅浏览器内核实现；轻量内核在 resolveRoomId 内自行解析） */
   getRoomStatus?(): Promise<number | null>;
+  /** 以登录账号发一条弹幕（仅浏览器内核支持） */
+  sendChat?(text: string): Promise<void>;
+  /** 页面播放器最近请求的直播流地址（FLV / HLS），尚未请求时为 null（仅浏览器内核） */
+  streamUrl?(): string | null;
+  /** 直播画面截图，JPEG（仅浏览器内核） */
+  screenshot?(): Promise<Buffer>;
   /** 会话自带的直播间主播信息（轻量内核连接时解析；无则走 fetchRoomMeta 兜底） */
   meta?: RoomMeta | null;
 }
@@ -40,8 +46,8 @@ export interface RoomInfo {
   meta?: RoomMeta | null;
   /** 连接过程进度（launching → listening → live / error） */
   progress?: { step: string; detail?: string; ts: number };
-  /** 是否使用了独立 cookie（而非全局共享 cookie） */
-  hasOwnCookie?: boolean;
+  /** 所属账号 ID */
+  accountId?: string;
 }
 
 /** 连接进度步骤 */
@@ -58,18 +64,25 @@ export interface CollectorOptions {
   onStatusChange?: (roomId: string, status: string, error?: string) => void;
 }
 
+/** 房间操作（发弹幕 / 取流地址 / 截图）失败，带建议的 HTTP 状态码 */
+export class RoomActionError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+  }
+}
+
 export class Collector {
   private sessions = new Map<string, SessionLike>();
   private errors = new Map<string, string>();
   private metas = new Map<string, RoomMeta | null>();
   /** 已停止但保留的房间（不删除，随时可恢复连接） */
-  private saved = new Map<string, { meta: RoomMeta | null; msgCount: number; stoppedAt: number }>();
+  private saved = new Map<string, { meta: RoomMeta | null; msgCount: number; stoppedAt: number; accountId?: string }>();
   /** 连接过程进度 */
   private progress = new Map<string, { step: ConnectStep; detail?: string; ts: number }>();
   /** 进行中的连接 Promise，防止并发重复连接同一房间（多个订阅者同时接入时只开一次采集） */
   private connecting = new Map<string, Promise<RoomInfo>>();
-  /** 每房间是否使用了独立 cookie */
-  private ownCookies = new Map<string, boolean>();
+  /** roomId → accountId 映射，保证同一房间不会被多个账号同时订阅 */
+  private roomAccounts = new Map<string, string>();
   private readonly browser?: BrowserManager;
   private readonly createSession?: (roomId: string, cookie?: string) => SessionLike;
   private readonly onMessage: CollectorOptions['onMessage'];
@@ -93,23 +106,41 @@ export class Collector {
    * 连接并开始采集一个直播间（若房间处于”已停止”保留态，直接恢复）。
    * 并发调用同一 roomId 只触发一次实际连接，复用进行中的 Promise —— 多个订阅者
    * 同时接入同一房间时不会重复开浏览器页面 / 重复建 wss。
-   * opts.cookie：传入时该房间使用独立 cookie（多账号多房间互不干扰）；
-   *               不传时若 cookieStore 有该房间的独立 cookie 则用它，否则回退全局 cookie。
+   * opts.accountId：指定账号 ID，该房间使用此账号的 cookie；不传时使用默认账号。
    */
-  async connect(roomId: string, opts?: { cookie?: string }): Promise<RoomInfo> {
-    const existing = this.sessions.get(roomId);
-    // closed / error 视为「旧会话，需要重建」，只对 connecting / live 保持快速返回
-    if (existing && existing.status !== 'closed' && existing.status !== 'error') {
+  async connect(roomId: string, opts?: { accountId?: string }): Promise<RoomInfo> {
+    const accountId = opts?.accountId ?? accountStore.getDefaultAccountId();
+    if (!accountId) throw new RoomActionError('没有可用的账号，请先在控制台创建', 400);
+
+    const existingAccount = this.roomAccounts.get(roomId);
+
+    // 房间已被其他账号占用 → 拒绝（多账号不能同时订阅同一直播间）
+    if (existingAccount && existingAccount !== accountId) {
+      const session = this.sessions.get(roomId);
+      if (session && session.status !== 'closed' && session.status !== 'error') {
+        throw new RoomActionError(`房间 ${roomId} 已被账号 ${existingAccount} 占用`, 409);
+      }
+      // 旧会话已关闭/失败，允许重新绑定
+      this.roomAccounts.delete(roomId);
+    }
+
+    // 同账号已有活跃会话 → 幂等返回
+    const session = this.sessions.get(roomId);
+    if (session && session.status !== 'closed' && session.status !== 'error' && existingAccount === accountId) {
       return this.getRoomInfo(roomId)!;
     }
+
+    // 立即绑定账号，防止并发连接时其他账号抢占
+    this.roomAccounts.set(roomId, accountId);
+
     const pending = this.connecting.get(roomId);
     if (pending) return pending;
-    const p = this.doConnect(roomId, opts).finally(() => this.connecting.delete(roomId));
+    const p = this.doConnect(roomId, accountId).finally(() => this.connecting.delete(roomId));
     this.connecting.set(roomId, p);
     return p;
   }
 
-  private async doConnect(roomId: string, opts?: { cookie?: string }): Promise<RoomInfo> {
+  private async doConnect(roomId: string, accountId: string): Promise<RoomInfo> {
     const stale = this.sessions.get(roomId);
     if (stale) {
       // closed / error 视为「旧会话，需要重建」，只对 connecting / live 保持快速返回
@@ -132,9 +163,8 @@ export class Collector {
       this.progress.set(roomId, { step, detail, ts: Date.now() });
 
     setProgress('launching');
-    // 确定本房间使用的 cookie：显式传入 > cookieStore 已有独立 cookie > 全局（undefined）
-    const cookie = opts?.cookie ?? (cookieStore.hasRoomCookie(roomId) ? cookieStore.getRoomCookieStr(roomId) : undefined);
-    this.ownCookies.set(roomId, !!cookie);
+    // 确定本房间使用的 cookie：来自绑定账号的 cookie
+    const cookie = accountStore.getAccountCookieStr(accountId) || undefined;
     const session = this.createSession
       ? this.createSession(roomId, cookie)
       : await this.createBrowserSession(roomId, cookie);
@@ -190,9 +220,14 @@ export class Collector {
   private async createBrowserSession(roomId: string, cookie?: string): Promise<SessionLike> {
     if (!this.browser) throw new Error('未配置浏览器内核（DYHUB_COLLECTOR=browser 时需要 DYHUB_CHROME）');
     const url = `https://live.douyin.com/${roomId}`;
-    const { page, cdp, context } = await this.browser.openRoom(url, { cookie });
+    const { page, cdp, context, streamUrl } = await this.browser.openRoom(url, { cookie });
     const session = new LiveSession(roomId, page, cdp, {
+      streamUrl,
       onMessage: (msg, meta) => this.onMessage(msg, meta),
+      // 弹幕通道（重新）建立：清掉之前的断开错误
+      onOpen: () => {
+        this.errors.delete(roomId);
+      },
       onError: (err) => {
         this.errors.set(roomId, err.message);
       },
@@ -201,21 +236,49 @@ export class Collector {
     return session;
   }
 
+  /** 在已连接的直播间发一条弹幕 */
+  async sendChat(roomId: string, text: string): Promise<void> {
+    const s = this.liveSession(roomId, 'sendChat', '发送弹幕');
+    await s.sendChat!(text);
+  }
+
+  /** 直播间正在播放的流地址，播放器还没请求时为 null */
+  getStreamUrl(roomId: string): string | null {
+    return this.liveSession(roomId, 'streamUrl', '获取直播流').streamUrl!();
+  }
+
+  /** 直播画面截图（JPEG） */
+  async screenshot(roomId: string): Promise<Buffer> {
+    return this.liveSession(roomId, 'screenshot', '截图').screenshot!();
+  }
+
+  /** 已进入直播的会话，且其内核支持 feature；否则抛出带状态码的 RoomActionError */
+  private liveSession(roomId: string, feature: 'sendChat' | 'streamUrl' | 'screenshot', what: string): SessionLike {
+    const s = this.sessions.get(roomId);
+    if (!s) throw new RoomActionError('房间未连接', 404);
+    if (!s[feature]) throw new RoomActionError(`当前采集内核不支持${what}（需浏览器内核）`, 501);
+    if (s.status !== 'live') throw new RoomActionError('房间弹幕通道未建立', 409);
+    return s;
+  }
+
   /** 停止一个直播间的采集（保留房间记录与主播信息，随时可恢复连接） */
   async disconnect(roomId: string): Promise<void> {
     const s = this.sessions.get(roomId);
     if (s) {
       await s.stop();
       this.sessions.delete(roomId);
+      const accountId = this.roomAccounts.get(roomId);
       this.saved.set(roomId, {
         meta: this.metas.get(roomId) ?? null,
         msgCount: s.stats().msgCount,
         stoppedAt: Date.now(),
+        accountId,
       });
       this.fireStatusChange(roomId, 'stopped');
     }
     this.errors.delete(roomId);
     this.progress.delete(roomId);
+    this.roomAccounts.delete(roomId);
   }
 
   /** 彻底删除一个房间（含已停止保留的记录），房间从列表消失 */
@@ -230,7 +293,7 @@ export class Collector {
     this.errors.delete(roomId);
     this.metas.delete(roomId);
     this.progress.delete(roomId);
-    this.ownCookies.delete(roomId);
+    this.roomAccounts.delete(roomId);
     this.lastStatus.delete(roomId);
   }
 
@@ -251,7 +314,7 @@ export class Collector {
         error: this.errors.get(roomId),
         meta: this.metas.has(roomId) ? this.metas.get(roomId) : undefined,
         progress: this.progress.get(roomId),
-        hasOwnCookie: this.ownCookies.get(roomId) ?? false,
+        accountId: this.roomAccounts.get(roomId),
       };
     }
     const saved = this.saved.get(roomId);
@@ -262,7 +325,7 @@ export class Collector {
         startedAt: saved.stoppedAt,
         stats: { wsCount: 0, frameCount: 0, msgCount: saved.msgCount },
         meta: saved.meta ?? undefined,
-        hasOwnCookie: this.ownCookies.get(roomId) ?? false,
+        accountId: saved.accountId,
       };
     }
     return null;

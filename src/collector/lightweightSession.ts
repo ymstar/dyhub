@@ -19,7 +19,7 @@ import { decodeFrame, decodeAckInfo } from '../proto/douyin.proto.js';
 import type { RawProtoMessage } from '../proto/douyin.proto.js';
 import { parseRoomMeta, parseRoomStatus } from './roomMeta.js';
 import type { RoomMeta } from './roomMeta.js';
-import * as cookieStore from './cookieStore.js';
+import * as accountStore from './accountStore.js';
 
 // PushFrame 编码器（心跳/ack，字段号与官方 proto 一致）
 const PF = protobuf
@@ -134,8 +134,10 @@ function sharedCookieStr(): string {
 async function ensureSharedCookies(): Promise<void> {
   if (sharedJarAt && Date.now() - sharedJarAt < JAR_TTL_MS) return;
 
-  // 用户通过 Dashboard 或 DYHUB_COOKIE 提供的 cookie（含登录态），绕过 cookie 链请求
-  const userCookie = cookieStore.getCookieStr();
+  // 用户通过 Dashboard / DYHUB_COOKIE 提供的 cookie（含登录态），绕过 cookie 链请求
+  // 多账号模型下取默认账号的 cookie 作为共享 jar 的初始值
+  const defaultId = accountStore.getDefaultAccountId();
+  const userCookie = defaultId ? accountStore.getAccountCookieStr(defaultId) : '';
   if (userCookie && !sharedJar.size) {
     sharedJar.clear();
     for (const part of userCookie.split(';')) {

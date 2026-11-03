@@ -35,7 +35,7 @@ DyHub 是一个抖音直播弹幕采集与分发中台：**双采集内核自研
 - **统一事件协议**：抖音私有 protobuf → 标准化 `DanmakuEvent`，消费端零感知
 - **三通道分发**：WebSocket（低延迟实时）、SSE（浏览器一行接入）、Webhook（HMAC-SHA256 签名鉴权）
 - **多房间并发**：单浏览器实例多页面，支持同时采集多个直播间，控制台一键切换查看
-- **每房间独立 Cookie**：抖音同一账号同一时间只能在一个直播间，多房间共用登录态会互相竞争导致礼物信息丢失。支持为每个房间设置独立 Cookie（多账号多房间互不干扰），持久化到磁盘，Docker 重新部署自动恢复
+- **多账号管理**：抖音同一账号同一时间只能在一个直播间，多房间共用登录态会互相竞争导致礼物信息丢失。支持多账号隔离（每个账号独立 cookie），连接房间时选择账号，持久化到磁盘，Docker 重新部署自动恢复；同一房间不能被多个账号同时订阅
 - **房间生命周期管理**：连接过程分步进度展示（浏览器启动 → 订阅监听 → 连接成功），支持停止保留 / 一键恢复 / 彻底删除
 - **可视化控制台**：实时弹幕流（头像 / 事件类型 / 来源房间 / 昵称）、事件筛选、房间管理、对接演示与在线测试
 - **可插拔扩展**：新增平台只需写一个 collector 适配器，复用同一套事件协议与分发层
@@ -148,6 +148,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用） | 无（默认无头） |
 | `DYHUB_COLLECTOR` | 采集内核：`browser`（默认，浏览器 + CDP，最稳抗风控）/ `lightweight`（纯代码直连，轻量快速） | `browser` |
 | `DYHUB_COOKIE` | 浏览器复制的 Cookie（含 `sessionid_ss` 登录态），用于**获取礼物事件**与**绕过容器 IP 风控**；也可启动后在控制台填写 → 详见 [Cookie 配置指南](docs/cookie-guide.md) | 无（游客态） |
+| `DYHUB_CHAT_INTERVAL_MS` | `POST /api/rooms/:roomId/chat` 同一房间两条弹幕的最小间隔（毫秒） | `3000` |
 
 ---
 
@@ -167,7 +168,10 @@ curl -X POST http://localhost:8757/api/rooms/connect \
     "id": "101652211600",
     "nickname": "田💕心",
     "avatar": "https://p3.douyinpic.com/aweme/100x100/...",
-    "secUid": "MS4wLjAB..."
+    "secUid": "MS4wLjAB...",
+    "payLevel": 23,
+    "fansClub": { "name": "甄选", "level": 12, "status": 1, "anchorId": "..." },
+    "badges": ["V年", "粉丝团等级12级勋章"]
   },
   "data": { "content": "劲道牛肉丸，3袋立享88折！" }
 }
@@ -175,11 +179,15 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 
 > `roomId` 统一为用户连接的房间号（web_rid），与房间管理 / 订阅过滤一致。
 
+> **用户等级**：`user.payLevel` 为财富等级（抖音 `User.payGrade.level`），`user.fansClub` 为粉丝团名称与等级（`User.fansClub.data`），所有带用户的事件都会携带；消息里没有时字段缺省（未加入粉丝团则无 `fansClub`）。`fansClub` 一般是本直播间主播的粉丝团，可用 `anchorId` 核对。
+
+> **勋章**：`user.badges` 是名字旁的勋章，解码自 `User` 的勋章列表（21 是旧列表，61 是新列表）。直播间会员只在 61 里（imageType 59，文字只是「勋章」），按图片名记为月会员 `V`（`subscribe_new`）或年会员 `V年`（`subscribe_new_yearly`）；其余勋章用勋章文字（`粉丝团等级14级勋章`、`荣誉等级27级勋章`、`房管勋章`）。没有勋章时字段缺省。
+
 **事件类型**：
 
 | type | 含义 | data 关键字段 |
 | --- | --- | --- |
-| `chat` | 弹幕 | `content` |
+| `chat` | 弹幕（含会员表情 / 大表情） | `content` / `parts` / `sticker` |
 | `gift` | 礼物 | `giftName` / `diamondCount` / `repeatCount` / `comboCount` / `groupCount` / `repeatEnd` / `groupId` / `combo`（需登录态 Cookie，见 [Cookie 指南](docs/cookie-guide.md)） |
 | `member` | 进场 | `memberCount` |
 | `like` | 点赞 | `count` / `total` |
@@ -187,6 +195,8 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `room` | 直播间统计 | `total`（在线）/ `popularity` / `totalUser` |
 | `roomStatus` | 房间状态变更 | `status`（connecting/live/closed/error/stopped）/ `message`（错误信息） |
 | `unknown` | 未识别消息透传 | `method` |
+
+> **表情**：`content` 是原始文本，常见表情是 `[比心]` 这样的方括号占位符。抖音下发富文本时（粉丝团 / 会员表情、@某人），`parts` 按顺序给出每一段：`{ "type": "text", "text" }`、`{ "type": "emote", "url", "name" }` 或 `{ "type": "mention", "text": "@昵称", "userId" }`，渲染时优先用 `parts`；纯表情弹幕的 `content` 可能为空。整条消息是一张大表情（`WebcastEmojiChatMessage`）时同样以 `chat` 下发，`sticker: true`，`parts` 只有那一张图，`content` 为抖音给的文字替代。表情图在抖音 CDN 上，`<img>` 需加 `referrerpolicy="no-referrer"`。
 
 > **礼物计数**：抖音对同一次送礼会推送多条 `WebcastGiftMessage`（连击进度 + 连击结束时一条 `repeatEnd: true` 的收尾消息），它们 `msgId` 不同、`groupId` 相同，因此不会被去重。按 `giftId + groupId` 合并、取 `repeatCount` 的增量计数，并忽略已见过的分组的收尾消息即可避免重复。
 
@@ -240,13 +250,19 @@ curl -X POST http://localhost:8757/api/webhooks \
 | --- | --- | --- |
 | GET | `/` | 控制台（实时监控 + 多房间切换 + 对接演示） |
 | GET | `/api/rooms` | 已连接直播间列表（含主播信息与连接进度） |
-| POST | `/api/rooms/connect` | 连接直播间 `{roomId, cookie?}`（`cookie` 为该房间独立登录态，可选） |
+| POST | `/api/rooms/connect` | 连接直播间 `{roomId, accountId?}`（`accountId` 为账号 ID，可选；不传用默认账号） |
 | POST | `/api/rooms/:roomId/disconnect` | 停止采集（房间保留，可随时恢复） |
 | DELETE | `/api/rooms/:roomId` | 彻底删除房间 |
 | GET | `/api/rooms/:roomId` | 单房间详情 |
-| GET/PUT/DELETE | `/api/rooms/:roomId/cookie` | 每房间独立 Cookie（查看 / 设置 / 清除），多账号多房间互不干扰 |
+| POST | `/api/rooms/:roomId/chat` | 以登录账号发一条弹幕 `{text}`，返回 `{ok, echoed}`（需浏览器内核 + 网页登录；同一房间排队发送，间隔见 `DYHUB_CHAT_INTERVAL_MS`） |
+| GET | `/api/rooms/:roomId/stream` | 直播间播放器正在拉的流地址 `{url}`（FLV / HLS，带签名，可直接给 ffmpeg；需浏览器内核） |
+| GET | `/api/rooms/:roomId/screenshot` | 直播画面截图（`image/jpeg`，只截播放器；需浏览器内核） |
 | GET | `/api/stats` | 全局统计（WS 客户端数 / 房间 / 事件量） |
-| GET/POST/DELETE | `/api/cookie` | 登录 Cookie 管理（查看状态 / 设置 / 清除），详见 [Cookie 配置指南](docs/cookie-guide.md) |
+| GET/POST | `/api/accounts` | 账号列表 / 新建账号 `{name}` |
+| POST | `/api/accounts/:id/login` | 弹出浏览器扫码登录（返回 `LoginState`，轮询 `GET /api/accounts/:id/login`） |
+| DELETE | `/api/accounts/:id/login` | 取消登录 |
+| GET/DELETE | `/api/accounts/:id/cookie` | 查看 / 清除账号 cookie 状态 |
+| DELETE | `/api/accounts/:id` | 删除账号 |
 | GET | `/api/events?types=chat,gift&roomId=xxx` | SSE 实时事件流 |
 | GET/POST/DELETE | `/api/webhooks` | Webhook 订阅管理 |
 
@@ -262,7 +278,7 @@ src/
 ├── collector/
 │   ├── browser.ts           # 浏览器内核：Chrome 探测 / 页面 / CDP / Cookie 注入
 │   ├── lightweightSession.ts # 轻量内核：纯代码 wss 直连（cookie 链 / 签名 / 心跳 / ack）
-│   ├── cookieStore.ts       # 运行时 Cookie 存储（登录态注入，两种内核共用）
+│   ├── accountStore.ts       # 账号存储（多账号管理，cookie 持久化）
 │   ├── liveSession.ts       # 单直播间会话（帧监听 / 状态机）
 │   ├── roomMeta.ts          # 主播信息解析（昵称 / 头像 / 简介）
 │   └── collector.ts         # 采集器门面（多房间管理）
@@ -355,11 +371,11 @@ npm install -f @typescript/typescript-darwin-x64   # 或 -arm64，按实际报�
 
 **Q：礼物事件获取不到？**
 
-抖音 webcast 服务端只向已登录的连接推送礼物事件，游客态只收到弹幕 / 进场 / 点赞等。需在控制台填入含 `sessionid_ss` 的登录 Cookie → 详见 [Cookie 配置指南](docs/cookie-guide.md)。
+抖音 webcast 服务端只向已登录的连接推送礼物事件，游客态只收到弹幕 / 进场 / 点赞等。需在控制台为对应账号登录（网页扫码），或通过 `DYHUB_COOKIE` 环境变量注入含 `sessionid_ss` 的登录 Cookie → 详见 [Cookie 配置指南](docs/cookie-guide.md)。
 
-**Q：多个直播间的礼物事件互相竞争 / 只有一个房间能收到礼物？**
+**Q：多个直播间要不同账号？**
 
-抖音同一账号同一时间只能出现在一个直播间，多房间共用一个登录 Cookie 会互相踢掉登录态。解决方案：为每个房间设置**独立 Cookie**（不同账号），控制台连接时展开「独立 Cookie」输入框填写，或点击房间卡片的「Cookie」按钮设置。API 方式：`PUT /api/rooms/:roomId/cookie`，或连接时传 `cookie` 字段。独立 Cookie 持久化到 `data/room-cookies/`，Docker 重新部署自动恢复。
+多账号模型下，每个账号独立维护自己的 cookie。在控制台创建多个账号，分别扫码登录后，连接房间时选择对应账号即可。同一房间不能被多个账号同时订阅（返回 409），如需切换账号需先断开再重连。账号数据持久化在 `data/accounts/{accountId}.json`，Docker 重新部署自动恢复。
 
 ---
 
