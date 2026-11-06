@@ -845,7 +845,8 @@ curl -X POST http://${base}/api/webhooks \\
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
           <div style="display:flex;gap:4px;">
-            ${a.hasLogin ? '' : '<button class="card-btn" data-act="login" data-id="${a.id}">登录</button>'}
+            ${a.hasLogin ? '' : `<button class="card-btn" data-act="login" data-id="${a.id}">登录</button>`}
+            <button class="card-btn ghost" data-act="import" data-id="${a.id}" title="粘贴登录 Cookie（无界面环境用）">导入 Cookie</button>
             ${a.hasCookie ? `<button class="card-btn ghost" data-act="clear" data-id="${a.id}">清除</button>` : ''}
             <button class="card-btn danger" data-act="del" data-id="${a.id}" title="删除账号">×</button>
           </div>
@@ -858,6 +859,7 @@ curl -X POST http://${base}/api/webhooks \\
         const act = btn.dataset.act;
         const id = btn.dataset.id;
         if (act === 'login') startLogin(id);
+        else if (act === 'import') importCookie(id);
         else if (act === 'clear') clearAccountCookie(id);
         else if (act === 'del') deleteAccount(id);
       });
@@ -899,12 +901,26 @@ curl -X POST http://${base}/api/webhooks \\
     refreshAccounts();
   }
 
+  /** 粘贴 Cookie 导入登录态（容器 / 无图形界面环境的替代登录方式） */
+  async function importCookie(id) {
+    const cookie = prompt('粘贴抖音登录 Cookie（整行字符串，含 sessionid_ss 的整行）:', '');
+    if (!cookie || !cookie.trim()) return;
+    const r = await fetch(`/api/accounts/${id}/cookie`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cookie: cookie.trim() }),
+    });
+    refreshAccounts();
+  }
+
   // ---- 网页登录（弹出抖音窗口，全局单例）----
   const loginActive = (st) => st.status === 'opening' || st.status === 'waiting';
   function showLogin(st) {
     const box = $('loginBox'), msg = $('loginMsg');
-    box.style.display = st.message ? 'flex' : 'none';
-    msg.textContent = st.message || '';
+    // 后端错误对象（如 404 账号不存在）没有 message 字段，兜底显示 error
+    const m = st.message || st.error || '';
+    box.style.display = m ? 'flex' : 'none';
+    msg.textContent = m;
     msg.style.color = st.status === 'error' || st.status === 'expired' ? '#a33' : st.status === 'success' ? '#2d7a4c' : 'var(--text)';
     const active = loginActive(st);
     $('btnLoginCancel').textContent = active ? '取消' : '关闭';
@@ -918,8 +934,17 @@ curl -X POST http://${base}/api/webhooks \\
   async function startLogin(id) {
     activeLoginAccountId = id;
     showLogin({ status: 'opening', message: '正在打开抖音登录窗口…' });
-    const r = await fetch(`/api/accounts/${id}/login`, { method: 'POST' });
-    showLogin(await r.json());
+    // 后端启动 Chrome（容器无图形界面时可能长时间无响应）→ 前端超时兜底，避免页面永远停留在「正在打开」
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    try {
+      const r = await fetch(`/api/accounts/${id}/login`, { method: 'POST', signal: ctrl.signal });
+      showLogin(await r.json());
+    } catch {
+      showLogin({ status: 'error', message: '登录窗口启动超时。若部署在容器 / 服务器（无图形界面）中无法弹出登录窗口，请改用「导入 Cookie」。' });
+    } finally {
+      clearTimeout(timer);
+    }
     clearInterval(loginTimer);
     loginTimer = setInterval(pollLogin, 1500);
   }
