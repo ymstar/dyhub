@@ -48,7 +48,7 @@ DyHub 采用多账号模型：每个账号 = 一个抖音登录态（cookie）�
 
 有两种方式创建账号并配置 cookie：
 
-### 方式一：控制台网页登录（推荐）
+### 方式一：控制台网页登录
 
 服务启动后、连接房间前，在控制台操作：
 
@@ -58,6 +58,8 @@ DyHub 采用多账号模型：每个账号 = 一个抖音登录态（cookie）�
 4. 在窗口中完成登录，Cookie 会自动保存到该账号
 5. 状态标签变为 **● 已登录** 即可
 6. 连接直播间时，在「账号」下拉中选择该账号
+
+> **需要图形界面**：网页登录通过弹出真实 Chrome 窗口完成。本机桌面部署直接可用；**Docker / 服务器（无显示器、无 X server）无法弹出窗口**，点击「登录」会尝试启动浏览器并返回错误提示，此时改用「导入 Cookie」（方式二）。
 
 > 支持运行时随时更新：重新登录后，新连接的房间会使用新 Cookie；已连接的房间需断开重连生效。
 
@@ -75,9 +77,21 @@ curl -X DELETE http://localhost:8757/api/accounts/acc_xxx/cookie
 curl -X DELETE http://localhost:8757/api/accounts/acc_xxx
 ```
 
-### 方式二：环境变量（适合 Docker / 无界面部署）
+### 方式二：导入 Cookie（适合 Docker / 无界面部署）
 
-启动前设置 `DYHUB_COOKIE` 环境变量，会应用到默认账号：
+无图形界面（容器 / 服务器）时无法弹出登录窗口，通过 **控制台「导入 Cookie」** 粘贴已复制的 Cookie 字符串即可（对应 `POST /api/accounts/:id/cookie`）：
+
+1. 控制台「账号管理」→ 新建账号
+2. 账号卡片点击「导入 Cookie」→ 粘贴整行 Cookie（含 `sessionid_ss`）
+3. 状态标签变为 **● 已登录** 即可
+
+```bash
+curl -X POST http://localhost:8757/api/accounts/acc_xxx/cookie \
+  -H 'Content-Type: application/json' \
+  -d '{"cookie":"ttwid=xxx; sessionid_ss=xxx; sid_tt=xxx"}'
+```
+
+也可以启动前设置 `DYHUB_COOKIE` 环境变量，会应用到默认账号：
 
 ```bash
 # 本地
@@ -91,7 +105,7 @@ environment:
 docker run -d -p 8757:8757 -e DYHUB_COOKIE="ttwid=xxx; sessionid_ss=xxx" dyhub
 ```
 
-> 环境变量在启动时读入。如需运行时更新或配置多个账号，用方式一。
+> 环境变量在启动时读入。运行时更新或配置多个账号，用控制台导入。
 
 ## 多账号与房间订阅
 

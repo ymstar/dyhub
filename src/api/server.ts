@@ -86,6 +86,16 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
     return accountStore.getAccountStatus(id);
   });
 
+  /** 导入 Cookie（粘贴 / 复制登录态字符串）：容器 / 无图形界面环境替代网页登录 */
+  app.post('/api/accounts/:id/cookie', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });
+    const { cookie } = (req.body ?? {}) as { cookie?: string };
+    if (!cookie || !cookie.trim()) return reply.code(400).send({ error: 'cookie 必填' });
+    accountStore.setAccountCookie(id, cookie.trim());
+    return { ok: true, ...accountStore.getAccountStatus(id) };
+  });
+
   app.delete('/api/accounts/:id/cookie', async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!accountStore.getAccount(id)) return reply.code(404).send({ error: '账号不存在' });

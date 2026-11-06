@@ -147,7 +147,7 @@ curl -X POST http://localhost:8757/api/rooms/connect \
 | `DYHUB_CHROME` | Chrome/Chromium 可执行文件路径 | 自动探测 |
 | `DYHUB_HEADED` | 设为 `1` 打开有头浏览器（调试用） | 无（默认无头） |
 | `DYHUB_COLLECTOR` | 采集内核：`browser`（默认，浏览器 + CDP，最稳抗风控）/ `lightweight`（纯代码直连，轻量快速） | `browser` |
-| `DYHUB_COOKIE` | 浏览器复制的 Cookie（含 `sessionid_ss` 登录态），用于**获取礼物事件**与**绕过容器 IP 风控**；也可启动后在控制台填写 → 详见 [Cookie 配置指南](docs/cookie-guide.md) | 无（游客态） |
+| `DYHUB_COOKIE` | 浏览器复制的 Cookie（含 `sessionid_ss` 登录态），用于**获取礼物事件**与**绕过容器 IP 风控**；也可以控制台账号卡片「导入 Cookie」或网页登录 → 详见 [Cookie 配置指南](docs/cookie-guide.md) | 无（游客态） |
 | `DYHUB_CHAT_INTERVAL_MS` | `POST /api/rooms/:roomId/chat` 同一房间两条弹幕的最小间隔（毫秒） | `3000` |
 
 ---
@@ -259,9 +259,9 @@ curl -X POST http://localhost:8757/api/webhooks \
 | GET | `/api/rooms/:roomId/screenshot` | 直播画面截图（`image/jpeg`，只截播放器；需浏览器内核） |
 | GET | `/api/stats` | 全局统计（WS 客户端数 / 房间 / 事件量） |
 | GET/POST | `/api/accounts` | 账号列表 / 新建账号 `{name}` |
-| POST | `/api/accounts/:id/login` | 弹出浏览器扫码登录（返回 `LoginState`，轮询 `GET /api/accounts/:id/login`） |
+| POST | `/api/accounts/:id/login` | 弹出浏览器扫码登录（需要图形界面；无图形界面时启动浏览器会失败并返回错误，可改用导入 Cookie） |
 | DELETE | `/api/accounts/:id/login` | 取消登录 |
-| GET/DELETE | `/api/accounts/:id/cookie` | 查看 / 清除账号 cookie 状态 |
+| GET/POST/DELETE | `/api/accounts/:id/cookie` | 查看 / 导入 / 清除账号 cookie 状态（导入即粘贴 Cookie 字符串，适合容器等无界面环境） |
 | DELETE | `/api/accounts/:id` | 删除账号 |
 | GET | `/api/events?types=chat,gift&roomId=xxx` | SSE 实时事件流 |
 | GET/POST/DELETE | `/api/webhooks` | Webhook 订阅管理 |

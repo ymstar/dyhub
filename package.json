@@ -1,6 +1,6 @@
 {
   "name": "dyhub",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "抖音直播弹幕中台基座：自研采集内核（真实浏览器 + CDP 帧截获）+ 统一事件协议 + WS/SSE/Webhook 解耦分发",
   "type": "module",
   "main": "dist/index.js",
