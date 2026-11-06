@@ -6,7 +6,8 @@
  *
  * 浏览器资料保存在 data/login-profile/（不入库）。
  * 每次打开窗口前会清空其中的 cookie，确保总是重新登录（可切换账号）。
- * 需要图形界面：Docker / 无显示器的服务器上请改用 DYHUB_COOKIE 环境变量。
+ * 需要图形界面：Docker / 无显示器的服务器上无法弹出窗口，启动前会直接提示，
+ * 请改用控制台「导入 Cookie」或 DYHUB_COOKIE 环境变量。
  */
 
 import { chromium, type BrowserContext } from 'playwright-core';
@@ -34,8 +35,19 @@ const PROFILE_DIR = join(process.cwd(), 'data', 'login-profile');
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 /** 检查登录 cookie 的间隔 */
 const POLL_MS = 1500;
+/** 启动浏览器的最长时间（无头环境常因缺 X server 长时间无响应，避免请求挂起） */
+const LAUNCH_TIMEOUT_MS = 20_000;
 /** 抖音写入以下任一 cookie 即视为登录成功 */
 const LOGIN_COOKIES = ['sessionid_ss', 'sessionid'];
+
+/** 当前环境是否具备弹出浏览器窗口的图形界面。
+ *  容器 / 服务器（Linux）没有 DISPLAY / Wayland 时必然无法弹窗，
+ *  提前检测后直接给出明确提示，而不是让 Playwright 慢慢启动失败。
+ *  macOS / Windows 桌面环境始终有界面，不检测。 */
+function hasDisplay(): boolean {
+  if (process.platform !== 'linux') return true;
+  return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY || process.env.XDG_RUNTIME_DIR);
+}
 
 let state: LoginState = { status: 'idle', updatedAt: Date.now() };
 let context: BrowserContext | null = null;
@@ -78,6 +90,14 @@ export async function start(accountId: string): Promise<LoginState> {
   const alive = () => gen === generation;
   setState('opening', '正在打开抖音登录窗口…');
 
+  if (!hasDisplay()) {
+    setState(
+      'error',
+      '当前环境没有图形界面（容器 / 服务器无桌面），无法弹出登录窗口。请改用 Cookie 导入：在账号卡片点击「导入 Cookie」粘贴登录 Cookie，或设置 DYHUB_COOKIE 环境变量。',
+    );
+    return state;
+  }
+
   const executablePath = process.env.DYHUB_CHROME || findChrome();
   if (!executablePath) {
     setState('error', '未找到 Chrome，可通过 DYHUB_CHROME 指定路径');
@@ -91,7 +111,16 @@ export async function start(accountId: string): Promise<LoginState> {
       viewport: null,
       userAgent: DEFAULT_USER_AGENT,
       locale: 'zh-CN',
-      args: ['--disable-blink-features=AutomationControlled', '--window-size=1200,860'],
+      timeout: LAUNCH_TIMEOUT_MS,
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--window-size=1200,860',
+        // 容器兼容性：root 下无 --no-sandbox 会被 Chrome 拒绝启动；
+        // /dev/shm 过小会导致渲染崩溃（与 BrowserManager 内核保持一致）
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--mute-audio',
+      ],
     });
     if (!alive()) {
       await ctx.close();
